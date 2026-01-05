@@ -1,0 +1,8 @@
+Flask==2.3.2
+requests==2.31.0
+pymongo==4.4.1
+redis==4.5.5
+pyrogram==2.0.106
+qrcode==7.4.2
+Pillow==10.0.0
+gunicorn==21.2.0
