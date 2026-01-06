@@ -1,4 +1,3 @@
-# app.py (robust version, copy-paste replace)
 import os
 import io
 import json
@@ -57,12 +56,10 @@ def safe_mongo_client(uri):
     if MongoClient is None:
         return None
     try:
-        client = MongoClient(uri, serverSelectionTimeoutMS=5000)  # short timeout
-        # do a cheap server check (will raise if cannot connect)
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         try:
             client.admin.command('ping')
         except Exception:
-            # don't fail hard — allow app to run; operations will fail gracefully later
             print("[WARN] mongo ping failed (continuing without live mongo):", uri)
         return client
     except Exception as e:
@@ -74,7 +71,6 @@ def safe_redis_client(host, port, password):
         return None
     try:
         r = redis.Redis(host=host, port=port, password=password, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
-        # quick ping
         try:
             r.ping()
         except Exception:
@@ -84,13 +80,11 @@ def safe_redis_client(host, port, password):
         print("[ERROR] creating Redis client failed:", e)
         return None
 
-# create clients (defensive)
 market_client = safe_mongo_client(MARKET_DB_URL)
 waifu_client = safe_mongo_client(MONGO_URL_WAIFU)
 husband_client = safe_mongo_client(MONGO_URL_HUSBAND)
 r = safe_redis_client(REDIS_HOST, REDIS_PORT, REDIS_PASSWORD)
 
-# safe collection getters (may return None if mongo missing)
 def get_collection(client, dbname, collname):
     try:
         if client is None:
@@ -100,18 +94,18 @@ def get_collection(client, dbname, collname):
         print("[WARN] get_collection error:", e)
         return None
 
-market_db = market_client['market_p2p'] if market_client else None
+market_db = market_client['market_p2p'] if market_client is not None else None
 user_settings_coll = get_collection(market_client, 'market_p2p', 'user_settings')
 
-waifu_db = waifu_client['Character_catcher'] if waifu_client else None
+waifu_db = waifu_client['Character_catcher'] if waifu_client is not None else None
 waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_lmaoooo')
 
-husband_db = husband_client['Character_catcher'] if husband_client else None
+husband_db = husband_client['Character_catcher'] if husband_client is not None else None
 husband_users_coll = get_collection(husband_client, 'Character_catcher', 'user_collection_lmaoooo')
 
 registered_users = None
 try:
-    if market_client:
+    if market_client is not None:
         registered_users = market_client['Character_catcher']['registered_users']
 except Exception as e:
     print("[WARN] registered_users collection not available:", e)
@@ -138,7 +132,6 @@ def ensure_user_profile(uid, first_name=None, username=None, avatar=None):
     uid_str = str(uid)
     try:
         if registered_users is None:
-            # fallback: return a dict but don't try to write
             return {'user_id': uid_str, 'firstname': first_name or DEFAULT_NAME, 'username': username, 'photo_url': avatar or DEFAULT_AVATAR}
         update = {}
         if first_name is not None:
@@ -315,23 +308,22 @@ def api_top():
 
         raw = []
         try:
-            if r:
+            if r is not None:
                 raw = r.zrevrange(key, 0, limit - 1, withscores=True)
         except Exception as e:
             print("[WARN] reading redis leaderboard failed:", e)
 
         if not raw and key != 'leaderboard:charms':
             try:
-                if r:
+                if r is not None:
                     raw = r.zrevrange('leaderboard:charms', 0, limit - 1, withscores=True)
             except Exception as e:
                 print("[WARN] reading global leaderboard failed:", e)
 
         if not raw:
-            # fallback: scan registered_users if available
             candidates = []
             try:
-                if registered_users:
+                if registered_users is not None:
                     for u in registered_users.find({}, {'user_id': 1, 'firstname': 1, 'username': 1, 'photo_url': 1}):
                         uid = u.get('user_id')
                         if not uid:
@@ -339,7 +331,6 @@ def api_top():
                         charms = get_charms(uid)
                         if charms > 0:
                             candidates.append((str(uid), int(charms)))
-                # sort desc
                 candidates.sort(key=lambda x: -x[1])
                 raw = [(m, s) for m, s in candidates[:limit]]
             except Exception as e:
@@ -351,7 +342,7 @@ def api_top():
             uid = str(member)
             user_doc = {}
             try:
-                if registered_users:
+                if registered_users is not None:
                     user_doc = registered_users.find_one({'user_id': uid}) or {}
             except Exception:
                 user_doc = {}
@@ -377,7 +368,7 @@ def api_top_user():
         return jsonify({"ok": False, "error": "missing user_id"}), 400
     try:
         rank = None
-        if r:
+        if r is not None:
             try:
                 rank = r.zrevrank('leaderboard:charms', str(uid))
             except Exception:
@@ -400,7 +391,7 @@ def api_rebuild_leaderboard():
         pipe = r.pipeline()
         counts = 0
         entries = []
-        if not registered_users:
+        if registered_users is None:
             return jsonify({"ok": False, "error": "registered_users collection not available"})
         for u in registered_users.find({}, {'user_id': 1}):
             uid = u.get('user_id')
@@ -426,7 +417,6 @@ def api_rebuild_leaderboard():
 def stream_charms():
     def event_stream():
         if r is None:
-            # simple keep-alive dummy stream if redis not present
             while True:
                 yield "data: {}\n\n"
         pubsub = None
