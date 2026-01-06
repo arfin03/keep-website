@@ -116,7 +116,6 @@ def update_charms(uid, amt, typ=None):
         r.zadd('leaderboard:charms', {str(uid): current})
         if typ and str(typ).lower() in ('waifu', 'husband'):
             r.zadd(f'leaderboard:charms:{typ}', {str(uid): current})
-        # publish for SSE
         try:
             r.publish('charms_updates', json.dumps({"user_id": str(uid), "charms": current, "type": typ}))
         except Exception:
@@ -147,6 +146,58 @@ def ensure_user_profile(uid, first_name=None, username=None, avatar=None):
         return registered_users.find_one({'user_id': uid_str})
     except Exception:
         return {'user_id': uid_str, 'firstname': first_name or DEFAULT_NAME, 'username': username, 'photo_url': avatar or DEFAULT_AVATAR}
+
+# helper: aggregate top from a mongo users collection
+def build_top_from_users_coll(users_coll, limit=100):
+    if users_coll is None:
+        return []
+    try:
+        pipeline = [
+            {"$addFields": {"character_count": {"$cond": {"if": {"$isArray": "$characters"}, "then": {"$size": "$characters"}, "else": 0}}}},
+            {"$project": {"user_id": {"$ifNull": ["$id", "$user_id"]}, "first_name": 1, "username": 1, "character_count": 1}},
+            {"$sort": {"character_count": -1}},
+            {"$limit": limit}
+        ]
+        cursor = users_coll.aggregate(pipeline)
+        return list(cursor)
+    except Exception:
+        return []
+
+def fetch_profile_fallback(uid, users_coll=None):
+    """
+    Return a dict with keys: name, username, avatar.
+    Priority:
+      1) registered_users collection (photo_url, firstname, username)
+      2) provided users_coll (waifu/husband user collection) fields (first_name, firstname, username)
+      3) defaults
+    """
+    uid_str = str(uid)
+    # try registered_users first
+    if registered_users is not None:
+        try:
+            doc = registered_users.find_one({'user_id': uid_str})
+            if doc:
+                name = doc.get('firstname') or doc.get('first_name') or doc.get('name') or DEFAULT_NAME
+                username = doc.get('username') or None
+                avatar = doc.get('photo_url') or None
+                return {'name': name, 'username': username, 'avatar': avatar}
+        except Exception:
+            pass
+    # try users_coll if provided
+    if users_coll is not None:
+        try:
+            # user docs in waifu/husband collections often use 'id' for user id
+            doc = users_coll.find_one({'id': uid_str}) or users_coll.find_one({'user_id': uid_str}) or users_coll.find_one({'id': int(uid_str)}) if uid_str.isdigit() else None
+            if doc:
+                name = doc.get('first_name') or doc.get('firstname') or doc.get('name') or DEFAULT_NAME
+                username = doc.get('username') or None
+                # check some possible avatar fields if stored in that collection
+                avatar = doc.get('photo_url') or doc.get('avatar') or doc.get('picture') or None
+                return {'name': name, 'username': username, 'avatar': avatar}
+        except Exception:
+            pass
+    # fallback default
+    return {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
 
 # ================ ROUTES ================
 @app.route('/')
@@ -187,26 +238,6 @@ def api_my_collection():
         return jsonify({"ok": True, "items": items})
     except Exception as e:
         return jsonify({"ok": False, "items": [], "error": str(e)}), 500
-
-# helper: aggregate top from a mongo users collection
-def build_top_from_users_coll(users_coll, limit=100):
-    """
-    Aggregation like bot: compute character_count as size(characters) when array,
-    sort desc and return list of docs with user_id, first_name, username, character_count
-    """
-    if users_coll is None:
-        return []
-    try:
-        pipeline = [
-            {"$addFields": {"character_count": {"$cond": {"if": {"$isArray": "$characters"}, "then": {"$size": "$characters"}, "else": 0}}}},
-            {"$project": {"user_id": {"$ifNull": ["$id", "$user_id"]}, "first_name": 1, "username": 1, "character_count": 1}},
-            {"$sort": {"character_count": -1}},
-            {"$limit": limit}
-        ]
-        cursor = users_coll.aggregate(pipeline)
-        return list(cursor)
-    except Exception:
-        return []
 
 @app.route('/api/top')
 def api_top():
@@ -249,17 +280,22 @@ def api_top():
                 raw = []
 
         # final fallback: aggregate from users collection (count characters)
+        agg_docs = None
         if not raw:
             if users_coll is not None:
-                agg = build_top_from_users_coll(users_coll, limit=limit)
-                # transform agg documents into (member,score)-style list: use character_count as score
-                raw = [(str(doc.get('user_id') or ''), int(doc.get('character_count') or 0)) for doc in agg if doc.get('user_id')]
+                agg_docs = build_top_from_users_coll(users_coll, limit=limit)
+                raw = []
+                for doc in agg_docs:
+                    uid = doc.get('user_id') or doc.get('id') or doc.get('user_id')
+                    if not uid:
+                        continue
+                    raw.append((str(uid), int(doc.get('character_count') or 0)))
             else:
                 # global fallback: if registered_users exists, try reading charms from Redis per user
                 fallback = []
                 if registered_users is not None:
                     try:
-                        for u in registered_users.find({}, {'user_id': 1, 'firstname': 1}) :
+                        for u in registered_users.find({}, {'user_id': 1}):
                             uid = u.get('user_id')
                             if not uid:
                                 continue
@@ -271,32 +307,30 @@ def api_top():
                     except Exception:
                         raw = []
 
-        # build items with profile lookup in registered_users if present
+        # build items with profile lookup in registered_users if present (or fallback to users_coll)
         items = []
         rank = 1
-        for member, score in raw:
+        for idx, (member, score) in enumerate(raw):
             uid = str(member)
-            doc = {}
-            if registered_users is not None:
-                try:
-                    doc = registered_users.find_one({'user_id': uid}) or {}
-                except Exception:
-                    doc = {}
-            name = doc.get('firstname') or DEFAULT_NAME
-            username = doc.get('username')
-            avatar = doc.get('photo_url') or DEFAULT_AVATAR
-            # sometimes the mongo aggregate already had first_name/username; use that as fallback
-            if (not name or name == DEFAULT_NAME) and isinstance(member, str):
-                # try to pull name from users collection doc if we aggregated that
-                # (only possible when aggregate path used)
-                pass
+            # prefer registered_users, else fallback to users_coll, else defaults
+            profile = fetch_profile_fallback(uid, users_coll=users_coll)
+            name = profile.get('name') or DEFAULT_NAME
+            username = profile.get('username') or None
+            avatar = profile.get('avatar') or None
+            if not avatar:
+                # if user hasn't logged in miniapp, avatar remains default
+                avatar = DEFAULT_AVATAR
+            # expose fields compatible with frontend
             items.append({
                 'rank': rank,
                 'user_id': uid,
                 'name': name,
                 'username': username,
                 'avatar': avatar,
-                'charms': int(score)
+                # score & count for compatibility with various frontends
+                'charms': int(score),
+                'score': int(score),
+                'count': int(score)
             })
             rank += 1
 
@@ -361,7 +395,7 @@ def api_rebuild_leaderboard():
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
 
-# SSE for charms updates (unchanged)
+# SSE for charms updates
 @app.route('/stream/charms')
 def stream_charms():
     def event_stream():
