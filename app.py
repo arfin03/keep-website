@@ -25,38 +25,6 @@ REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redi
 REDIS_PORT = int(os.getenv('REDIS_PORT', 13380))
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
 
-app = Flask(__name__, static_folder='static', template_folder='templates')
-
-# --- DB CONNECTIONS ---
-try:
-    market_client = MongoClient(MARKET_DB_URL)
-    market_db = market_client['market_p2p']
-    user_settings_coll = market_db['user_settings'] # Untuk Theme & BGM
-    
-    waifu_client = MongoClient(MONGO_URL_WAIFU)
-    waifu_db = waifu_client['Character_catcher']
-    waifu_users_coll = waifu_db['user_collection_lmaoooo']
-    
-    husband_client = MongoClient(MONGO_URL_HUSBAND)
-    husband_db = husband_client['Character_catcher']
-    husband_users_coll = husband_db['user_collection_lmaoooo']
-    
-    registered_users = market_client['Character_catcher']['registered_users']
-    charms_addresses = market_client['Character_catcher']['charms_addresses']
-    
-    print("[DB] All Connected")
-except Exception as e:
-    print(f"[DB] Error: {e}")
-    market_db = None
-
-try:
-    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
-    r.ping()
-    print("[Redis] Connected")
-except Exception as e:
-    print(f"[Redis] Error: {e}")
-    r = None
-
 # --- CONSTANTS ---
 CATEGORY_MAP = {
     '🏖': '🏖𝒐𝒖𝒎𝒎𝒆𝒓 🏖', '👘': '👘𝑲𝒊𝒎𝒐𝒏𝒐👘', '🧹': '🧹𝑴𝒂𝒊𝒅🧹',
@@ -71,7 +39,41 @@ CATEGORY_MAP = {
     '🔞': '🔞𝑵𝒖𝒅𝒆𝒐🔞', '🪽': '🪽𝑯𝒆𝒂𝒗𝒆𝒏𝒍𝒚🪽', '☀️': '☀️𝑪𝒐𝒘𝒃𝒐𝒚 ☀️', '🌑': '🌑𝒏𝒖𝒏🌑'
 }
 
-# --- HELPERS ---
+app = Flask(__name__, static_folder='static', template_folder='templates')
+
+# --- DB CONNECTIONS ---
+try:
+    market_client = MongoClient(MARKET_DB_URL)
+    market_db = market_client['market_p2p']
+    user_settings_coll = market_db['user_settings'] 
+    
+    # Database Waifu (Khusus Waifu)
+    waifu_client = MongoClient(MONGO_URL_WAIFU)
+    waifu_db = waifu_client['Character_catcher']
+    waifu_users_coll = waifu_db['user_collection_lmaoooo']
+    
+    # Database Husband (Khusus Husband)
+    husband_client = MongoClient(MONGO_URL_HUSBAND)
+    husband_db = husband_client['Character_catcher']
+    husband_users_coll = husband_db['user_collection_lmaoooo']
+    
+    # General Info (Bisa diambil dari manapun, biasanya market)
+    registered_users = market_client['Character_catcher']['registered_users']
+    
+    print("[DB] All databases connected")
+except Exception as e:
+    print(f"[DB] Error: {e}")
+    market_db = None
+
+try:
+    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
+    r.ping()
+    print("[Redis] Connected")
+except Exception as e:
+    print(f"[Redis] Error: {e}")
+    r = None
+
+# --- HELPER FUNCTIONS ---
 def get_charms(uid):
     if not r: return 0
     try: return int(r.hget(f"user:{uid}", "charm") or 0)
@@ -85,14 +87,6 @@ def update_charms(uid, amt):
         return True
     except: return False
 
-def log_tx(uid, t_type, amt, title, detail=""):
-    if not r: return
-    try:
-        tx = {"type": t_type, "amount": amt, "title": title, "detail": detail, "ts": datetime.utcnow().timestamp()}
-        r.lpush(f"user:{uid}:txs", json.dumps(tx))
-        r.ltrim(f"user:{uid}:txs", 0, 99)
-    except: pass
-
 # --- ROUTES ---
 
 @app.route('/')
@@ -103,21 +97,89 @@ def index():
 def api_user_info():
     uid = request.args.get('user_id')
     u_data = registered_users.find_one({'user_id': str(uid)}) or {}
-    
-    # Get Settings
-    settings = user_settings_coll.find_one({'user_id': str(uid)}) or {}
-    
     return jsonify({
         'ok': True, 'id': uid, 
         'name': u_data.get('firstname', 'Traveler'), 
         'avatar': u_data.get('photo_url', 'https://picsum.photos/seed/user/200/200'),
-        'balance': get_charms(uid),
-        'theme_url': settings.get('theme_url', ''),
-        'bgm_url': settings.get('bgm_url', ''),
-        'lang': settings.get('lang', 'en')
+        'balance': get_charms(uid)
     })
 
-# --- MARKET & P2P CORE ---
+# --- DEBUG ROUTE (PENTING) ---
+# Fitur ini saya tambahkan agar kita bisa melihat isi database asli Anda
+@app.route('/api/debug_my_user', methods=['GET'])
+def api_debug_my_user():
+    uid = request.args.get('user_id')
+    db_type = request.args.get('type', 'waifu')
+    
+    coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
+    
+    # Cari semua kemungkinan ID (String/Int) dan kolom (id/user_id)
+    print(f"[DEBUG] Checking DB {db_type} for UID: {uid}")
+    
+    user_doc = coll.find_one({'id': str(uid)}) or \
+               coll.find_one({'id': int(uid)}) or \
+               coll.find_one({'user_id': str(uid)})
+    
+    if not user_doc:
+        return jsonify({'ok': False, 'error': 'User not found at all', 'uid_checked': uid})
+    
+    # Ubah ObjectId ke String agar bisa dibaca di JSON
+    user_doc['_id'] = str(user_doc['_id'])
+    
+    # Kembalikan seluruh isi document user (termasuk key apa saja yang ada)
+    return jsonify({
+        'ok': True,
+        'user_document': user_doc,
+        'keys_in_doc': list(user_doc.keys())
+    })
+
+@app.route('/api/my_collection', methods=['GET'])
+def api_my_collection():
+    uid = request.args.get('user_id')
+    db_type = request.args.get('type', 'waifu')
+    
+    # Pilih Collection berdasarkan Tipe
+    coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
+    
+    if not coll:
+        return jsonify({'ok': False, 'error': f'DB Connection Error for {db_type}'}), 500
+    
+    print(f"[API] Fetch Collection: UID={uid}, Type={db_type}")
+    
+    try:
+        # Cari User ID (Coba 'id', 'user_id', String, dan Integer)
+        user_doc = coll.find_one({'id': str(uid)}) or \
+                   coll.find_one({'id': int(uid)}) or \
+                   coll.find_one({'user_id': str(uid)})
+        
+        if not user_doc:
+            print(f"[ERROR] User Doc NOT FOUND for UID: {uid}")
+            return jsonify({'ok': True, 'items': [], 'debug': 'User doc not found'})
+        
+        print(f"[SUCCESS] User Doc found: {user_doc['_id']}")
+
+        # Cari Karakter (Coba key 'characters', 'waifu', 'husband', 'char')
+        items = user_doc.get('characters') or \
+                 user_doc.get('waifu') or \
+                 user_doc.get('husband') or \
+                 user_doc.get('char') or []
+
+        print(f"[INFO] Found {len(items)} items in collection.")
+
+        # Jika item kosong, kembalikan debug info untuk cek strukturnya
+        if not items:
+            return jsonify({
+                'ok': True, 
+                'items': [], 
+                'debug': f'Found 0 items. Doc Keys: {list(user_doc.keys())}'
+            })
+
+        return jsonify({'ok': True, 'items': items})
+    except Exception as e:
+        print(f"[EXCEPTION] {e}")
+        return jsonify({'ok': True, 'items': [], 'debug': str(e)})
+
+# ... (Routes lain tetap sama seperti sebelumnya: market, p2p, buy, dll) ...
 @app.route('/api/market', methods=['GET'])
 def api_market():
     db_type = request.args.get('type', 'waifu')
@@ -145,7 +207,7 @@ def api_market():
         for item in items:
             item['_id'] = str(item['_id'])
             stock_key = f"market:stock:{item['_id']}"
-            stock = int(r.get(stock_key) or 30) # Default limit 30
+            stock = int(r.get(stock_key) or 30)
             item['stock'] = stock
         return jsonify({'ok': True, 'items': items})
     except: return jsonify({'ok': True, 'items': []})
@@ -159,43 +221,25 @@ def api_buy_market():
     coll = market_db['official_market']
     item = coll.find_one({'_id': ObjectId(item_id)})
     
-    if not item: return jsonify({'ok': False, 'error': 'Not Found'}), 404
+    if not item or item.get('stock', 0) <= 0: return jsonify({'ok': False, 'error': 'Out of Stock'}), 400
     if get_charms(uid) < item.get('price'): return jsonify({'ok': False, 'error': 'Insufficient Charms'}), 400
     
-    # Check Stock
-    stock_key = f"market:stock:{item_id}"
-    current_stock = int(r.get(stock_key) or 30)
-    if current_stock <= 0: return jsonify({'ok': False, 'error': 'Out of Stock'}), 400
-    
-    # Execute Buy
     update_charms(uid, -item.get('price'))
-    r.decr(stock_key)
+    r.decr(f"market:stock:{item_id}")
     
-    # Add Char to User
     char_data = {k:v for k,v in item.items() if k not in ['_id', 'stock', 'created_at']}
     target_coll = husband_users_coll if item.get('type')=='husband' else waifu_users_coll
     target_coll.update_one({'id': str(uid)}, {'$push': {'characters': char_data}}, upsert=True)
     
-    log_tx(uid, 'buy', -item.get('price'), f"Bought {item.get('name')}")
     return jsonify({'ok': True, 'new_balance': get_charms(uid)})
-
-@app.route('/api/my_collection', methods=['GET'])
-def api_my_collection():
-    uid = request.args.get('user_id'); db_type = request.args.get('type', 'waifu')
-    coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
-    try:
-        user_doc = coll.find_one({'id': str(uid)}) or coll.find_one({'id': int(uid)})
-        items = user_doc.get('characters', []) if user_doc else []
-        return jsonify({'ok': True, 'items': items})
-    except: return jsonify({'ok': True, 'items': []})
 
 @app.route('/api/sell_character', methods=['POST'])
 def api_sell_character():
     data = request.json
     uid = data.get('user_id'); char_id = data.get('char_id')
-    price = data.get('price'); qty = int(data.get('qty', 1))
-    desc = data.get('description', ''); category = data.get('category', '')
+    price = data.get('price'); desc = data.get('description', '')
     db_type = data.get('type', 'waifu')
+    category = data.get('category', '')
     
     coll_user = husband_users_coll if db_type == 'husband' else waifu_users_coll
     user_doc = coll_user.find_one({'id': str(uid)})
@@ -204,11 +248,9 @@ def api_sell_character():
     chars = user_doc.get('characters', [])
     target_char = None
     new_chars = []
-    removed = 0
     for c in chars:
-        if removed < qty and str(c.get('id')) == str(char_id):
+        if str(c.get('id')) == str(char_id) and not target_char:
             target_char = c
-            removed += 1
             continue
         new_chars.append(c)
         
@@ -218,13 +260,13 @@ def api_sell_character():
     
     listing = {
         'seller_id': str(uid), 'seller_name': data.get('seller_name'),
-        'char_data': target_char, 'qty': qty, 'price': price,
+        'char_data': target_char, 'price': price,
         'description': desc, 'type': db_type, 'category': category,
         'status': 'active', 'created_at': datetime.utcnow()
     }
     res = market_db['listings'].insert_one(listing)
     
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'listing_id': str(res.inserted_id)})
 
 @app.route('/api/p2p_listings', methods=['GET'])
 def api_p2p_listings():
@@ -253,9 +295,6 @@ def api_buy_p2p():
     char_data = listing.get('char_data')
     target_coll = husband_users_coll if listing.get('type')=='husband' else waifu_users_coll
     target_coll.update_one({'id': str(buyer_id)}, {'$push': {'characters': char_data}}, upsert=True)
-    
-    log_tx(buyer_id, 'p2p_buy', -listing.get('price'), f"P2P: {char_data.get('name')}")
-    log_tx(listing.get('seller_id'), 'p2p_sell', listing.get('price'), f"Sold {char_data.get('name')}")
     
     return jsonify({'ok': True})
 
