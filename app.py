@@ -33,7 +33,6 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 
 market_client = MongoClient(MARKET_DB_URL)
 market_db = market_client['market_p2p']
-user_settings_coll = market_db['user_settings']
 
 waifu_client = MongoClient(MONGO_URL_WAIFU)
 waifu_db = waifu_client['Character_catcher']
@@ -58,13 +57,11 @@ def serialize_mongo(obj):
     if isinstance(obj, list):
         return [serialize_mongo(i) for i in obj]
     if isinstance(obj, dict):
-        return {
-            k: serialize_mongo(str(v) if isinstance(v, ObjectId) else v)
-            for k, v in obj.items()
-        }
+        return {k: serialize_mongo(str(v) if isinstance(v, ObjectId) else v) for k, v in obj.items()}
     return obj
 
 
+# ---------- PROFILE (AMAN, GA SENTUH CHARMS) ----------
 def save_user_profile(uid, firstname, avatar):
     if not r:
         return
@@ -78,35 +75,46 @@ def save_user_profile(uid, firstname, avatar):
     )
 
 
-def get_charms(uid):
-    try:
-        return int(r.hget(f"user:{uid}", "charm") or 0)
-    except:
+# ---------- CHARMS (DIKUNCI + RECOVERY) ----------
+def recover_charms(uid):
+    if not r:
         return 0
+    score = r.zscore("leaderboard:charms", str(uid))
+    if score is not None:
+        r.hset(f"user:{uid}", "charm", int(score))
+        return int(score)
+    r.hsetnx(f"user:{uid}", "charm", 0)
+    return 0
+
+
+def get_charms(uid):
+    if not r:
+        return 0
+    charm = r.hget(f"user:{uid}", "charm")
+    if charm is None:
+        return recover_charms(uid)
+    return int(charm)
 
 
 def update_charms(uid, amt):
-    try:
-        r.hincrby(f"user:{uid}", "charm", amt)
-        r.zadd('leaderboard:charms', {str(uid): get_charms(uid)})
-        return True
-    except:
+    if not r:
         return False
+    r.hincrby(f"user:{uid}", "charm", amt)
+    r.zadd("leaderboard:charms", {str(uid): get_charms(uid)})
+    return True
 
 
-def log_tx(uid, t_type, amt, title, detail=""):
-    try:
-        tx = {
-            "type": t_type,
-            "amount": amt,
-            "title": title,
-            "detail": detail,
-            "ts": datetime.utcnow().timestamp()
-        }
-        r.lpush(f"user:{uid}:txs", json.dumps(tx))
-        r.ltrim(f"user:{uid}:txs", 0, 99)
-    except:
-        pass
+def log_tx(uid, t_type, amt, title):
+    if not r:
+        return
+    tx = {
+        "type": t_type,
+        "amount": amt,
+        "title": title,
+        "ts": datetime.utcnow().timestamp()
+    }
+    r.lpush(f"user:{uid}:txs", json.dumps(tx))
+    r.ltrim(f"user:{uid}:txs", 0, 99)
 
 # ================= ROUTES =================
 
@@ -139,68 +147,45 @@ def api_my_collection():
     uid = request.args.get('user_id')
     db_type = request.args.get('type', 'waifu')
 
-    users_coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
+    coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
 
-    user_doc = (
-        users_coll.find_one({'id': str(uid)}) or
-        users_coll.find_one({'id': int(uid)})
-    )
-
+    user_doc = coll.find_one({'id': str(uid)}) or coll.find_one({'id': int(uid)})
     if not user_doc:
         return jsonify({"ok": True, "items": []})
 
-    items = (
-        user_doc.get('characters') or
-        user_doc.get('waifu') or
-        user_doc.get('husband') or
-        []
-    )
-
-    return jsonify({
-        "ok": True,
-        "items": serialize_mongo(items)
-    })
+    items = user_doc.get('characters', [])
+    return jsonify({"ok": True, "items": serialize_mongo(items)})
 
 
 @app.route('/api/history')
 def api_history():
     uid = request.args.get('user_id')
-    try:
-        raw = r.lrange(f"user:{uid}:txs", 0, 50)
-        return jsonify({"ok": True, "items": [json.loads(x) for x in raw]})
-    except:
-        return jsonify({"ok": True, "items": []})
+    raw = r.lrange(f"user:{uid}:txs", 0, 50) if r else []
+    return jsonify({"ok": True, "items": [json.loads(x) for x in raw]})
 
 
 @app.route('/api/qr_code')
 def api_qr_code():
     uid = request.args.get('user_id')
-
     qr = qrcode.QRCode(box_size=8, border=3)
     qr.add_data(str(uid))
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
-
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-
-    return jsonify({
-        "ok": True,
-        "image_b64": base64.b64encode(buf.getvalue()).decode()
-    })
+    return jsonify({"ok": True, "image_b64": base64.b64encode(buf.getvalue()).decode()})
 
 
-# ================= TOP (FIXED) =================
+# ================= TOP (FIX TOTAL) =================
 
 @app.route('/api/top')
 def api_top():
     type_ = request.args.get('type', 'charms')
 
-    # ===== TOP CHARMS =====
-    if type_ == 'charms' and r is not None:
-        tops = r.zrevrange('leaderboard:charms', 0, 99, withscores=True)
+    # ----- TOP CHARMS -----
+    if type_ == 'charms' and r:
+        tops = r.zrevrange("leaderboard:charms", 0, 99, withscores=True)
         res = []
-
         for uid, score in tops:
             profile = r.hgetall(f"user:profile:{uid}")
             res.append({
@@ -209,10 +194,9 @@ def api_top():
                 "avatar": profile.get("avatar", "https://picsum.photos/200"),
                 "score": int(score)
             })
-
         return jsonify({"ok": True, "items": res})
 
-    # ===== TOP WAIFU / HUSBAND =====
+    # ----- TOP WAIFU / HUSBAND -----
     if type_ in ['waifu', 'husband']:
         coll = husband_users_coll if type_ == 'husband' else waifu_users_coll
         if coll is None:
@@ -221,35 +205,35 @@ def api_top():
         pipeline = [
             {
                 "$project": {
-                    "name": "$firstname",
+                    "uid": "$id",
                     "count": {
                         "$cond": [
                             {"$isArray": "$characters"},
                             {"$size": "$characters"},
                             0
                         ]
-                    },
-                    "photo_url": "$photo_url"
+                    }
                 }
             },
+            {"$group": {"_id": "$uid", "count": {"$max": "$count"}}},
             {"$sort": {"count": -1}},
             {"$limit": 100}
         ]
 
-        tops = list(coll.aggregate(pipeline))
-        tops = serialize_mongo(tops)
+        raw = list(coll.aggregate(pipeline))
+        res = []
 
-        return jsonify({
-            "ok": True,
-            "items": [
-                {
-                    "name": t.get("name", "Traveler"),
-                    "count": t.get("count", 0),
-                    "avatar": t.get("photo_url") or "https://picsum.photos/200"
-                }
-                for t in tops
-            ]
-        })
+        for item in raw:
+            uid = item["_id"]
+            profile = r.hgetall(f"user:profile:{uid}")
+            res.append({
+                "uid": uid,
+                "name": profile.get("firstname", "Traveler"),
+                "avatar": profile.get("avatar", "https://picsum.photos/200"),
+                "count": item.get("count", 0)
+            })
+
+        return jsonify({"ok": True, "items": res})
 
     return jsonify({"ok": True, "items": []})
 
