@@ -26,7 +26,7 @@
                 <div style="background:rgba(0,0,0,0.4); padding:5px 12px; border-radius:20px; font-family:var(--font-accent); color:#ffd700;">
                     <i class="fa-solid fa-gem"></i> <span id="balance-display">0</span>
                 </div>
-                <i class="fa-solid fa-bell" onclick="openNotifications()" style="font-size:18px; cursor:pointer;"></i>
+                <i class="fa-solid fa-bell" onclick="alert('Notifications Mock')" style="font-size:18px; cursor:pointer;"></i>
             </div>
         </header>
 
@@ -38,25 +38,50 @@
                     <p>The best waifu & husband market.</p>
                     <button class="glass-btn" style="background:white; color:var(--primary);" onclick="navigateTo('market')">Go to Market</button>
                 </div>
+
+                <!-- RESTORED FULL FEATURE GRID -->
                 <div class="char-grid">
-                    <div class="glass-card" onclick="navigateTo('market')" style="text-align:center; padding:20px;">
-                        <i class="fa-solid fa-store" style="font-size:24px; color:var(--accent);"></i>
-                        <div>Market</div>
+                    <div class="feature-item" onclick="navigateTo('market')">
+                        <div class="feature-icon"><i class="fa-solid fa-store"></i></div>
+                        <span class="feature-label">Market</span>
                     </div>
-                    <div class="glass-card" onclick="navigateTo('p2p')" style="text-align:center; padding:20px;">
-                        <i class="fa-solid fa-users" style="font-size:24px; color:var(--accent);"></i>
-                        <div>P2P</div>
+                    <div class="feature-item" onclick="navigateTo('p2p')">
+                        <div class="feature-icon"><i class="fa-solid fa-users"></i></div>
+                        <span class="feature-label">P2P</span>
                     </div>
-                    <div class="glass-card" onclick="navigateTo('games')" style="text-align:center; padding:20px;">
-                        <i class="fa-solid fa-gamepad" style="font-size:24px; color:var(--accent);"></i>
-                        <div>Games</div>
+                    <div class="feature-item" onclick="navigateTo('shop')">
+                        <div class="feature-icon"><i class="fa-solid fa-bag-shopping"></i></div>
+                        <span class="feature-label">Shop</span>
+                    </div>
+                    <div class="feature-item" onclick="navigateTo('events')">
+                        <div class="feature-icon"><i class="fa-solid fa-calendar-day"></i></div>
+                        <span class="feature-label">Events</span>
+                    </div>
+                    <div class="feature-item" onclick="navigateTo('friends')">
+                        <div class="feature-icon"><i class="fa-solid fa-user-group"></i></div>
+                        <span class="feature-label">Friends</span>
+                    </div>
+                    <div class="feature-item" onclick="navigateTo('top')">
+                        <div class="feature-icon"><i class="fa-solid fa-trophy"></i></div>
+                        <span class="feature-label">Top</span>
+                    </div>
+                    <div class="feature-item" onclick="navigateTo('settings')">
+                        <div class="feature-icon"><i class="fa-solid fa-gear"></i></div>
+                        <span class="feature-label">Settings</span>
+                    </div>
+                    <div class="feature-item" onclick="navigateTo('games')">
+                        <div class="feature-icon"><i class="fa-solid fa-gamepad"></i></div>
+                        <span class="feature-label">Games</span>
                     </div>
                 </div>
             </section>
 
             <!-- MARKET VIEW -->
             <section id="view-market" class="view-section">
-                <h2>Market</h2>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h2>Market</h2>
+                    <button class="glass-btn" onclick="document.getElementById('modal-filter').classList.add('open')"><i class="fa-solid fa-filter"></i> Sort</button>
+                </div>
                 <div class="tabs">
                     <div class="tab active" onclick="switchMarketTab('waifu')">Waifu</div>
                     <div class="tab" onclick="switchMarketTab('husband')">Husband</div>
@@ -68,7 +93,7 @@
             <section id="view-p2p" class="view-section">
                 <div style="display:flex; justify-content:space-between;">
                     <h2>P2P Trading</h2>
-                    <button class="glass-btn primary-btn" onclick="openSellModal()">Sell Character</button>
+                    <button class="glass-btn primary-btn" onclick="alert('Sell Modal Logic')">Sell Character</button>
                 </div>
                 <div id="p2p-list"></div>
             </section>
@@ -76,11 +101,10 @@
             <!-- SEND VIEW -->
             <section id="view-send" class="view-section">
                 <h2>Send Charms</h2>
-                <div onclick="openScanner()" style="height:150px; background:rgba(0,0,0,0.3); border-radius:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;">
-                    <i class="fa-solid fa-camera" style="font-size:32px;"></i>
-                    <span style="margin-left:10px;">Scan QR</span>
+                <div onclick="alert('Scan QR Logic')" style="height:150px; background:rgba(0,0,0,0.3); border-radius:12px; display:flex; align-items:center; justify-content:center; margin-bottom:15px;">
+                    <i class="fa-solid fa-camera" style="font-size:32px;"></i> <span style="margin-left:10px">Scan QR</span>
                 </div>
-                <input type="text" id="send-uid" class="glass-input" placeholder="User ID / Username">
+                <input type="text" id="send-uid" class="glass-input" placeholder="User ID">
                 <input type="number" id="send-amt" class="glass-input" placeholder="Amount">
                 <button class="glass-btn primary-btn" onclick="sendCharms()" style="width:100%">Send</button>
             </section>
@@ -88,9 +112,7 @@
             <!-- RECEIVE VIEW -->
             <section id="view-receive" class="view-section">
                 <h2>Receive Charms</h2>
-                <div id="receive-qr" style="display:flex; justify-content:center; padding:20px;">
-                    <!-- QR Code -->
-                </div>
+                <div id="receive-qr" style="display:flex; justify-content:center; padding:20px;"></div>
             </section>
 
             <!-- HISTORY VIEW -->
@@ -116,7 +138,7 @@
                     <div class="tab active" onclick="renderCollection('waifu')">Waifu</div>
                     <div class="tab" onclick="renderCollection('husband')">Husband</div>
                 </div>
-                <div id="collection-grid" class="char-grid"></div>
+                <div id="collection-grid" class="coll-grid"></div>
             </section>
 
             <!-- FRIENDS VIEW -->
@@ -128,7 +150,7 @@
                     <div class="tab">Chat</div>
                 </div>
                 <div id="friends-list">
-                    <div class="glass-card">Friend list loaded from Redis...</div>
+                    <div class="glass-card">Friend List (Redis)</div>
                 </div>
             </section>
 
@@ -148,8 +170,8 @@
                 <h2>Games</h2>
                 <div class="glass-card">
                     <h3>Tap Race</h3>
-                    <p>Tap as fast as you can!</p>
-                    <button class="glass-btn primary-btn">Play Now</button>
+                    <p>Play and win!</p>
+                    <button class="glass-btn primary-btn">Play</button>
                 </div>
             </section>
 
@@ -158,7 +180,7 @@
                 <h2>Settings</h2>
                 <div class="glass-card">
                     <label>Language</label>
-                    <select style="width:100%; padding:10px; border-radius:8px;">
+                    <select style="width:100%; padding:10px; border-radius:8px; background:rgba(0,0,0,0.5); color:white;">
                         <option>English</option>
                         <option>Indonesia</option>
                         <option>India</option>
@@ -178,38 +200,33 @@
     </div>
 
     <!-- MODALS -->
-    <div id="camera-view">
-        <video id="camera-video" autoplay playsinline style="width:100%; height:100%; object-fit:cover;"></video>
-        <button class="glass-btn" onclick="closeScanner()" style="position:absolute; top:20px; right:20px; z-index:501;">Close</button>
-    </div>
-
-    <div id="modal-sell" class="modal-overlay" onclick="this.classList.remove('open')">
+    <div id="modal-filter" class="modal-overlay" onclick="this.classList.remove('open')">
         <div class="bottom-sheet">
-            <h3>Sell Your Character</h3>
-            <div class="tabs">
-                <div class="tab active">Waifu</div>
-                <div class="tab">Husband</div>
+            <h3>Sort Market</h3>
+            <div class="glass-card">
+                <label>Rarity</label>
+                <select id="filter-rarity" class="glass-input" style="margin:0;">
+                    <option value="All">All</option>
+                    <option value="Common">Common</option>
+                    <option value="Rare">Rare</option>
+                    <option value="Legendary">Legendary</option>
+                </select>
             </div>
-            <div class="char-grid" style="max-height:300px; overflow-y:auto; margin-bottom:10px;">
-                <!-- Character select mock -->
-                <div class="char-card-small" onclick="alert('Select char logic here')"><img src="https://picsum.photos/100/150" class="char-img"></div>
+            <div class="glass-card">
+                <label>Price</label>
+                <select id="filter-sort" class="glass-input" style="margin:0;">
+                    <option value="price-asc">Low to High</option>
+                    <option value="price-desc">High to Low</option>
+                    <option value="newest">Newest</option>
+                    <option value="random">Random</option>
+                </select>
             </div>
-            <input type="number" class="glass-input" placeholder="Price">
-            <button class="glass-btn primary-btn" style="width:100%">List Item</button>
-        </div>
-    </div>
-
-    <div id="modal-notif" class="modal-overlay" onclick="this.classList.remove('open')">
-        <div class="bottom-sheet">
-            <h3>Notifications</h3>
-            <div id="notif-list">
-                <div class="glass-card">Welcome to Keep Market!</div>
-            </div>
+            <button class="glass-btn primary-btn" style="width:100%" onclick="applyFilter()">Apply</button>
         </div>
     </div>
 
     <script>
-        const state = { user: { id: null, name: 'Traveler', avatar: '', balance: 0 } };
+        const state = { user: { id: null, name: 'Traveler', avatar: '', balance: 0 }, marketTab: 'waifu' };
 
         window.addEventListener('load', async () => {
             const tg = window.Telegram.WebApp;
@@ -222,7 +239,6 @@
             document.getElementById('profile-name').innerText = state.user.name;
             document.getElementById('profile-avatar').src = state.user.avatar;
 
-            // Fetch User Info & Balance
             const res = await fetch(`/api/user_info?user_id=${state.user.id}`);
             if(res.ok) {
                 const data = await res.json();
@@ -236,7 +252,6 @@
             const target = document.getElementById(`view-${viewId}`);
             if(target) target.classList.add('active');
             
-            // Load Data
             if(viewId === 'market') renderMarket();
             if(viewId === 'p2p') renderP2P();
             if(viewId === 'receive') renderQR();
@@ -249,23 +264,21 @@
                 document.getElementById('profile-id-lg').innerText = state.user.id;
             }
 
-            // Nav Bar State
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             const btn = document.querySelector(`.nav-item[onclick="navigateTo('${viewId}')"]`);
             if(btn) btn.classList.add('active');
         }
 
-        // --- API CALLS ---
         async function renderMarket() {
-            const type = document.querySelector('#view-market .tab.active').innerText.toLowerCase();
-            const res = await fetch(`/api/market?type=${type}`);
+            const sort = document.getElementById('filter-sort').value;
+            const rarity = document.getElementById('filter-rarity').value;
+            const res = await fetch(`/api/market?type=${state.marketTab}&sort=${sort}&rarity=${rarity}`);
             const data = await res.json();
             const list = document.getElementById('market-list');
             list.innerHTML = '';
             if(data.items) {
                 data.items.forEach(item => {
-                    list.innerHTML += `
-                    <div class="glass-card">
+                    list.innerHTML += `<div class="glass-card">
                         <div style="display:flex; gap:12px;">
                             <img src="${item.image}" style="width:80px; height:100px; border-radius:8px; object-fit:cover;">
                             <div style="flex:1;">
@@ -284,17 +297,9 @@
         }
 
         async function buyMarket(id, price) {
-            if(confirm("Buy this item?")) {
-                const res = await fetch('/api/buy_market', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ user_id: state.user.id, item_id: id })
-                });
-                const data = await res.json();
-                if(data.ok) {
-                    alert("Success!");
-                    location.reload();
-                } else { alert(data.error); }
-            }
+            if(state.user.balance < price) return alert("No Balance");
+            const res = await fetch('/api/buy_market', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.id, item_id: id })});
+            if((await res.json()).ok) location.reload();
         }
 
         async function renderP2P() {
@@ -304,17 +309,7 @@
             list.innerHTML = '';
             if(data.items) {
                 data.items.forEach(item => {
-                    list.innerHTML += `
-                    <div class="glass-card">
-                        <div style="display:flex; gap:12px;">
-                            <img src="${item.char_data.image}" style="width:80px; height:100px; border-radius:8px; object-fit:cover;">
-                            <div style="flex:1;">
-                                <div style="font-size:10px; color:var(--primary);">Seller: ${item.seller_name}</div>
-                                <h3>${item.char_data.name}</h3>
-                                <div style="font-weight:bold;">${item.price} <i class="fa-solid fa-gem"></i></div>
-                            </div>
-                        </div>
-                    </div>`;
+                    list.innerHTML += `<div class="glass-card"><h3>${item.char_data.name}</h3><p>Price: ${item.price}</p></div>`;
                 });
             }
         }
@@ -326,11 +321,7 @@
             list.innerHTML = '';
             if(data.items) {
                 data.items.forEach((item, idx) => {
-                    list.innerHTML += `
-                    <div class="glass-card" style="display:flex; justify-content:space-between; padding:10px;">
-                        <div style="display:flex; gap:10px;"><span style="width:20px;">${idx+1}</span> <span>${item.name}</span></div>
-                        <span style="color:#ffd700;">${item.count || item.score}</span>
-                    </div>`;
+                    list.innerHTML += `<div class="glass-card" style="display:flex; justify-content:space-between;"><span>#${idx+1} ${item.name}</span><span>${item.count || item.score}</span></div>`;
                 });
             }
         }
@@ -342,11 +333,7 @@
             list.innerHTML = '';
             if(data.items) {
                 data.items.forEach(tx => {
-                    list.innerHTML += `
-                    <div class="glass-card">
-                        <div>${tx.title}</div>
-                        <small>${tx.amount} Charms</small>
-                    </div>`;
+                    list.innerHTML += `<div class="glass-card"><div>${tx.title}</div><small>${tx.amount}</small></div>`;
                 });
             }
         }
@@ -366,29 +353,20 @@
         async function renderQR() {
             const res = await fetch(`/api/qr_code?user_id=${state.user.id}`);
             const data = await res.json();
-            if(data.ok) {
-                document.getElementById('receive-qr').innerHTML = `<img src="data:image/png;base64,${data.image_b64}" style="border-radius:12px;">`;
-            }
+            if(data.ok) document.getElementById('receive-qr').innerHTML = `<img src="data:image/png;base64,${data.image_b64}" style="border-radius:12px;">`;
         }
 
-        // --- ACTIONS ---
         function switchMarketTab(type) {
+            state.marketTab = type;
             document.querySelectorAll('#view-market .tab').forEach(el => el.classList.remove('active'));
             event.target.classList.add('active');
             renderMarket();
         }
-
-        function openScanner() { document.getElementById('camera-view').style.display = 'flex'; }
-        function closeScanner() { document.getElementById('camera-view').style.display = 'none'; }
-        function openSellModal() { document.getElementById('modal-sell').classList.add('open'); }
-        function openNotifications() { document.getElementById('modal-notif').classList.add('open'); }
-
-        async function sendCharms() {
-            const uid = document.getElementById('send-uid').value;
-            const amt = document.getElementById('send-amt').value;
-            if(!uid || !amt) return alert("Fill all fields");
-            alert("Sending Logic (Mock): " + amt + " to " + uid);
+        function applyFilter() {
+            document.getElementById('modal-filter').classList.remove('open');
+            renderMarket();
         }
+        function sendCharms() { alert("Send Logic"); }
     </script>
 </body>
 </html>
