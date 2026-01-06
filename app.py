@@ -49,13 +49,13 @@ try:
     MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
     MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
 
-    REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com')
-    REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 13380)
-    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
+    REDIS_HOST = os.getenv('REDIS_HOST', None)
+    REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 6379)
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
 
     # ---------- helpers to init clients ----------
     def safe_mongo(uri: str):
-        if MongoClient is None:
+        if MongoClient is None or not uri:
             return None
         try:
             client = MongoClient(uri, serverSelectionTimeoutMS=5000)
@@ -68,7 +68,7 @@ try:
             return None
 
     def safe_redis(host: str, port: int, password: str):
-        if redis is None:
+        if redis is None or not host:
             return None
         try:
             r = redis.Redis(host=host, port=port, password=password, decode_responses=True,
@@ -112,7 +112,7 @@ try:
 
     registered_users = None
     global_user_profiles_coll = None
-    top_global_coll = None  # new collection to store global top/profile cache
+    top_global_coll = None  # collection to store cache
 
     if market_client is not None:
         try:
@@ -152,10 +152,6 @@ try:
         return obj
 
     def _try_many_fields_for_avatar(doc: Any):
-        """
-        Try multiple common fields where avatar/image might be stored.
-        Returns first non-empty string or None.
-        """
         if not isinstance(doc, dict):
             return None
         avatar = None
@@ -170,7 +166,6 @@ try:
             profile = None
         if isinstance(profile, dict):
             avatar = avatar or profile.get('avatar') or profile.get('photo') or profile.get('picture') or profile.get('image')
-        # final sanity: ensure avatar is a non-empty string
         if isinstance(avatar, str) and avatar.strip():
             return avatar
         return None
@@ -183,7 +178,66 @@ try:
         except Exception:
             return 0
 
-    # ---------- main helpers (improved) ----------
+    # utilities to find doc variants and normalize
+    def _find_doc_in_coll_variants(coll, uid_s):
+        if coll is None:
+            return None
+        try:
+            # try string user_id or id
+            doc = coll.find_one({'user_id': uid_s})
+            if doc:
+                return doc
+            doc = coll.find_one({'id': uid_s})
+            if doc:
+                return doc
+            # try numeric id
+            if uid_s.isdigit():
+                try:
+                    doc = coll.find_one({'id': int(uid_s)})
+                    if doc:
+                        return doc
+                except Exception:
+                    pass
+                try:
+                    doc = coll.find_one({'user_id': int(uid_s)})
+                    if doc:
+                        return doc
+                except Exception:
+                    pass
+            # try _id (string)
+            try:
+                doc = coll.find_one({'_id': uid_s})
+                if doc:
+                    return doc
+            except Exception:
+                pass
+        except Exception:
+            return None
+        return None
+
+    def _normalize_profile_doc(raw):
+        if not isinstance(raw, dict):
+            return None
+        out = {}
+        out['user_id'] = str(raw.get('user_id') or raw.get('id') or raw.get('_id') or '')
+        out['firstname'] = raw.get('firstname') or raw.get('first_name') or raw.get('name') or raw.get('displayName') or None
+        out['username'] = raw.get('username') or raw.get('user_name') or raw.get('handle') or None
+        avatar = None
+        try:
+            avatar = raw.get('avatar') or raw.get('photo_url') or raw.get('photo') or raw.get('picture') or raw.get('image') or None
+        except Exception:
+            avatar = None
+        try:
+            profile = raw.get('profile') or raw.get('profile_info') or None
+            if isinstance(profile, dict) and not avatar:
+                avatar = profile.get('avatar') or profile.get('photo') or profile.get('picture') or None
+        except Exception:
+            pass
+        out['photo_url'] = avatar
+        out['avatar'] = avatar
+        return out
+
+    # robust upsert_top_global (do not overwrite good avatar with default)
     def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
         uid_s = str(uid)
         charms = 0
@@ -193,12 +247,24 @@ try:
             charms = 0
         now = datetime.utcnow()
 
-        # write to redis hash if available
+        chosen_avatar = avatar
+        # prefer keeping an existing non-default avatar
+        try:
+            if top_global_coll is not None:
+                existing = top_global_coll.find_one({'user_id': uid_s})
+                if (not chosen_avatar or chosen_avatar == DEFAULT_AVATAR) and existing:
+                    existing_av = existing.get('avatar')
+                    if existing_av and existing_av != DEFAULT_AVATAR:
+                        chosen_avatar = existing_av
+        except Exception:
+            pass
+
+        # write to redis
         if r is not None:
             try:
                 mapping = {}
-                if avatar is not None:
-                    mapping['avatar'] = avatar
+                if chosen_avatar is not None:
+                    mapping['avatar'] = chosen_avatar
                 if username is not None:
                     mapping['username'] = username
                 if firstname is not None:
@@ -217,8 +283,8 @@ try:
                     r.zadd('leaderboard:charms', {str(uid_s): charms})
                 except Exception:
                     pass
-            except Exception as ex:
-                print(f"[upsert_top_global][redis_error] uid={uid_s} err={ex}", flush=True)
+            except Exception:
+                pass
 
         # write to mongo top_global_db
         if top_global_coll is not None:
@@ -227,118 +293,126 @@ try:
                     'user_id': uid_s,
                     'username': username,
                     'firstname': firstname,
-                    'avatar': avatar,
+                    'avatar': chosen_avatar,
                     'charms': int(charms),
                     'updated_at': now
                 }
                 top_global_coll.update_one({'user_id': uid_s}, {'$set': doc}, upsert=True)
-                print(f"[upsert_top_global][mongo_upsert] uid={uid_s} username={username} firstname={firstname} charms={charms} avatar={avatar}", flush=True)
-            except Exception as ex:
-                print(f"[upsert_top_global][mongo_error] uid={uid_s} err={ex}", flush=True)
-        else:
-            print(f"[upsert_top_global][mongo_missing] uid={uid_s} charms={charms}", flush=True)
+            except Exception:
+                pass
 
+    # ensure_user_profile: search many sources, normalize, persist to registered_users
     def ensure_user_profile(uid: str, first_name: str = None, username: str = None, avatar: str = None):
-        """
-        Upsert into registered_users if available, otherwise try to synthesize user info
-        from global_user_profiles_coll, waifu_users_coll or husband_users_coll.
-        Return a dict with at least user_id and firstname and photo_url/avatar.
-        """
         if uid is None:
             return None
         uid_s = str(uid)
 
-        doc_from_db = None
-        # 1) try registered_users upsert (if available)
-        if registered_users is not None:
-            try:
-                update = {}
-                if first_name is not None:
-                    update['firstname'] = first_name
-                if username is not None:
-                    update['username'] = username
-                if avatar is not None:
-                    update['photo_url'] = avatar
-                    update['avatar'] = avatar
-                if update:
-                    update['user_id'] = uid_s
-                    registered_users.update_one({'user_id': uid_s}, {'$set': update}, upsert=True)
-                else:
-                    registered_users.update_one({'user_id': uid_s}, {'$setOnInsert': {'user_id': uid_s, 'firstname': DEFAULT_NAME, 'photo_url': DEFAULT_AVATAR, 'avatar': DEFAULT_AVATAR}}, upsert=True)
-                doc_from_db = registered_users.find_one({'user_id': uid_s})
-            except Exception:
-                doc_from_db = None
-
-        # 2) if missing fields, try global profiles
-        if (not username or not first_name or avatar is None) and global_user_profiles_coll is not None:
-            try:
-                alt = global_user_profiles_coll.find_one({'user_id': uid_s}) or global_user_profiles_coll.find_one({'id': uid_s})
-                if alt is None and uid_s.isdigit():
-                    alt = global_user_profiles_coll.find_one({'id': int(uid_s)})
-                if alt:
-                    if not first_name:
-                        first_name = alt.get('firstname') or alt.get('first_name') or alt.get('displayName') or first_name
-                    if not username:
-                        username = alt.get('username') or alt.get('user_name') or alt.get('handle') or username
-                    if avatar is None:
-                        avatar = _try_many_fields_for_avatar(alt) or avatar
-            except Exception:
-                pass
-
-        # 3) try waifu collection
-        if (not username or not first_name or avatar is None) and waifu_users_coll is not None:
-            try:
-                alt = waifu_users_coll.find_one({'id': uid_s}) or waifu_users_coll.find_one({'user_id': uid_s})
-                if alt is None and uid_s.isdigit():
-                    alt = waifu_users_coll.find_one({'id': int(uid_s)})
-                if alt:
-                    if not first_name:
-                        first_name = alt.get('first_name') or alt.get('firstname') or first_name
-                    if not username:
-                        username = alt.get('username') or username
-                    if avatar is None:
-                        avatar = _try_many_fields_for_avatar(alt) or avatar
-            except Exception:
-                pass
-
-        # 4) try husband collection
-        if (not username or not first_name or avatar is None) and husband_users_coll is not None:
-            try:
-                alt = husband_users_coll.find_one({'id': uid_s}) or husband_users_coll.find_one({'user_id': uid_s})
-                if alt is None and uid_s.isdigit():
-                    alt = husband_users_coll.find_one({'id': int(uid_s)})
-                if alt:
-                    if not first_name:
-                        first_name = alt.get('first_name') or alt.get('firstname') or first_name
-                    if not username:
-                        username = alt.get('username') or username
-                    if avatar is None:
-                        avatar = _try_many_fields_for_avatar(alt) or avatar
-            except Exception:
-                pass
-
-        # final defaults
-        if not first_name:
-            first_name = DEFAULT_NAME
-        if avatar is None:
-            avatar = DEFAULT_AVATAR
-
-        # ensure redis & top_global updated (best-effort)
+        # 1) try registered_users first
+        doc = None
         try:
-            upsert_top_global(uid_s, firstname=first_name, username=username, avatar=avatar)
+            if registered_users is not None:
+                doc = _find_doc_in_coll_variants(registered_users, uid_s)
+        except Exception:
+            doc = None
+
+        if doc:
+            norm = _normalize_profile_doc(doc) or {}
+            if first_name:
+                norm['firstname'] = first_name
+            if username:
+                norm['username'] = username
+            if avatar:
+                norm['avatar'] = avatar
+                norm['photo_url'] = avatar
+            if not norm.get('firstname'):
+                norm['firstname'] = DEFAULT_NAME
+            if not norm.get('avatar'):
+                norm['avatar'] = DEFAULT_AVATAR
+                norm['photo_url'] = DEFAULT_AVATAR
+            # persist normalized back
+            try:
+                update_doc = {'user_id': uid_s, 'firstname': norm['firstname'], 'photo_url': norm['photo_url'], 'avatar': norm['avatar']}
+                if norm.get('username'):
+                    update_doc['username'] = norm['username']
+                registered_users.update_one({'user_id': uid_s}, {'$set': update_doc}, upsert=True)
+            except Exception:
+                pass
+            try:
+                upsert_top_global(uid_s, firstname=norm['firstname'], username=norm.get('username'), avatar=norm.get('avatar'))
+            except Exception:
+                pass
+            return norm
+
+        # 2) try other sources
+        candidates = []
+        try:
+            if global_user_profiles_coll is not None:
+                d = _find_doc_in_coll_variants(global_user_profiles_coll, uid_s)
+                if d:
+                    candidates.append(d)
+        except Exception:
+            pass
+        try:
+            if waifu_users_coll is not None:
+                d = _find_doc_in_coll_variants(waifu_users_coll, uid_s)
+                if d:
+                    candidates.append(d)
+        except Exception:
+            pass
+        try:
+            if husband_users_coll is not None:
+                d = _find_doc_in_coll_variants(husband_users_coll, uid_s)
+                if d:
+                    candidates.append(d)
         except Exception:
             pass
 
-        if isinstance(doc_from_db, dict):
-            # ensure doc has photo_url/avatar fields
-            if 'photo_url' not in doc_from_db:
-                doc_from_db['photo_url'] = avatar
-            if 'avatar' not in doc_from_db:
-                doc_from_db['avatar'] = avatar
-            return doc_from_db
+        # pick best candidate
+        chosen = None
+        for c in candidates:
+            n = _normalize_profile_doc(c)
+            if not n:
+                continue
+            if not chosen:
+                chosen = n
+                continue
+            # prefer one with non-default avatar
+            if (n.get('avatar') and n.get('avatar') != DEFAULT_AVATAR) and (not chosen.get('avatar') or chosen.get('avatar') == DEFAULT_AVATAR):
+                chosen = n
+            if n.get('firstname') and not chosen.get('firstname'):
+                chosen = n
 
-        return {'user_id': uid_s, 'firstname': first_name, 'username': username, 'photo_url': avatar, 'avatar': avatar}
+        if not chosen:
+            chosen = {'user_id': uid_s, 'firstname': first_name or DEFAULT_NAME, 'username': username or None, 'photo_url': avatar or DEFAULT_AVATAR, 'avatar': avatar or DEFAULT_AVATAR}
+        else:
+            if first_name:
+                chosen['firstname'] = first_name
+            if username:
+                chosen['username'] = username
+            if avatar:
+                chosen['avatar'] = avatar
+                chosen['photo_url'] = avatar
 
+        # persist to registered_users for quick future lookup
+        try:
+            to_save = {'user_id': uid_s, 'firstname': chosen.get('firstname') or DEFAULT_NAME, 'photo_url': chosen.get('photo_url') or chosen.get('avatar') or DEFAULT_AVATAR}
+            if chosen.get('username'):
+                to_save['username'] = chosen.get('username')
+            if chosen.get('avatar'):
+                to_save['avatar'] = chosen.get('avatar')
+            if registered_users is not None:
+                registered_users.update_one({'user_id': uid_s}, {'$set': to_save}, upsert=True)
+        except Exception:
+            pass
+
+        try:
+            upsert_top_global(uid_s, firstname=chosen.get('firstname'), username=chosen.get('username'), avatar=chosen.get('avatar'))
+        except Exception:
+            pass
+
+        return chosen
+
+    # helper: aggregate top from users coll
     def build_top_from_users_coll(users_coll, limit=100):
         if users_coll is None:
             return []
@@ -382,9 +456,95 @@ def show_init_error():
         return Response(_init_error, mimetype='text/plain'), 500
     return jsonify({"ok": True, "msg": "no init error"}), 200
 
+@app.route('/api/debug_top_status')
+def api_debug_top_status():
+    info = {
+        "top_global_coll_exists": top_global_coll is not None,
+        "registered_users_exists": registered_users is not None,
+        "global_user_profiles_coll_exists": global_user_profiles_coll is not None,
+        "waifu_users_coll_exists": waifu_users_coll is not None,
+        "husband_users_coll_exists": husband_users_coll is not None,
+        "redis_available": r is not None,
+    }
+    try:
+        if top_global_coll is not None:
+            info['top_global_count'] = int(top_global_coll.count_documents({}))
+            sample = []
+            for d in list(top_global_coll.find({}, {"_id": 0}).limit(5)):
+                dd = dict(d)
+                if 'updated_at' in dd and isinstance(dd['updated_at'], datetime):
+                    dd['updated_at'] = dd['updated_at'].strftime("%a, %d %b %Y %H:%M:%S GMT")
+                sample.append(dd)
+            info['top_global_sample'] = sample
+        else:
+            info['top_global_count'] = 0
+            info['top_global_sample'] = []
+    except Exception as ex:
+        info['top_global_error'] = str(ex)
+
+    try:
+        if registered_users is not None:
+            info['registered_users_count'] = int(registered_users.count_documents({}))
+        else:
+            info['registered_users_count'] = 0
+    except Exception as ex:
+        info['registered_users_error'] = str(ex)
+
+    try:
+        if r is not None:
+            info['redis_zcard_leaderboard'] = r.zcard('leaderboard:charms')
+        else:
+            info['redis_zcard_leaderboard'] = 0
+    except Exception as ex:
+        info['redis_error'] = str(ex)
+
+    return jsonify({"ok": True, "info": info})
+
+@app.route('/api/inspect_user')
+def api_inspect_user():
+    uid = request.args.get('user_id') or request.args.get('uid')
+    if not uid:
+        return jsonify({"ok": False, "error": "missing user_id"}), 400
+    uid_s = str(uid)
+    out = {'ok': True, 'user_id': uid_s, 'sources': {}}
+    try:
+        if registered_users is not None:
+            out['sources']['registered_users'] = _find_doc_in_coll_variants(registered_users, uid_s)
+    except Exception as ex:
+        out['sources']['registered_users_error'] = str(ex)
+    try:
+        if global_user_profiles_coll is not None:
+            out['sources']['global_user_profiles_coll'] = _find_doc_in_coll_variants(global_user_profiles_coll, uid_s)
+    except Exception as ex:
+        out['sources']['global_user_profiles_coll_error'] = str(ex)
+    try:
+        if waifu_users_coll is not None:
+            out['sources']['waifu_users_coll'] = _find_doc_in_coll_variants(waifu_users_coll, uid_s)
+    except Exception as ex:
+        out['sources']['waifu_users_coll_error'] = str(ex)
+    try:
+        if husband_users_coll is not None:
+            out['sources']['husband_users_coll'] = _find_doc_in_coll_variants(husband_users_coll, uid_s)
+    except Exception as ex:
+        out['sources']['husband_users_coll_error'] = str(ex)
+    try:
+        if top_global_coll is not None:
+            out['sources']['top_global_coll'] = top_global_coll.find_one({'user_id': uid_s})
+    except Exception as ex:
+        out['sources']['top_global_coll_error'] = str(ex)
+    try:
+        if r is not None:
+            out['redis_hash'] = r.hgetall(f"user:{uid_s}") or {}
+            try:
+                out['redis_score'] = r.zscore('leaderboard:charms', uid_s)
+            except Exception:
+                out['redis_score'] = None
+    except Exception as ex:
+        out['redis_error'] = str(ex)
+    return jsonify(out)
+
 @app.route('/api/user_info', methods=['GET', 'POST'])
 def api_user_info():
-    # Accept both GET query params and POST json
     if request.method == 'POST':
         data = request.get_json(silent=True) or request.form.to_dict()
     else:
@@ -398,13 +558,10 @@ def api_user_info():
     if uid is None:
         return jsonify({"ok": False, "error": "missing user_id"}), 400
 
-    # ensure user profile saved and update top_global_db + redis
     doc = ensure_user_profile(uid, first_name=firstname, username=username, avatar=avatar)
-
     uid_s = str(uid)
     charms = get_charms(uid_s)
 
-    # normalize avatar: prefer provided avatar param, else doc fields
     avatar_final = avatar or (doc.get('avatar') if isinstance(doc, dict) else None) or (doc.get('photo_url') if isinstance(doc, dict) else None) or DEFAULT_AVATAR
 
     return jsonify({
@@ -416,6 +573,103 @@ def api_user_info():
         "balance": charms
     })
 
+# Minimal defensive route for my collection
+@app.route('/api/my_collection', methods=['GET'])
+def api_my_collection():
+    try:
+        uid = request.args.get('user_id') or request.args.get('uid') or request.args.get('id')
+        if not uid:
+            return jsonify({"ok": False, "error": "missing user_id"}), 400
+        uid_s = str(uid)
+
+        def _find_user_doc(coll):
+            if coll is None:
+                return None
+            try:
+                doc = coll.find_one({'user_id': uid_s}) or coll.find_one({'id': uid_s})
+                if doc:
+                    return doc
+                if uid_s.isdigit():
+                    doc = coll.find_one({'id': int(uid_s)}) or coll.find_one({'user_id': int(uid_s)})
+                    if doc:
+                        return doc
+            except Exception:
+                return None
+            return None
+
+        user_doc = _find_user_doc(waifu_users_coll) or _find_user_doc(husband_users_coll)
+        if user_doc is None:
+            try:
+                user_doc = registered_users.find_one({'user_id': uid_s}) if registered_users is not None else None
+            except Exception:
+                user_doc = None
+
+        profile = {'user_id': uid_s, 'firstname': None, 'username': None, 'avatar': None}
+        if isinstance(user_doc, dict):
+            profile['firstname'] = user_doc.get('first_name') or user_doc.get('firstname') or user_doc.get('name') or profile['firstname']
+            profile['username'] = user_doc.get('username') or user_doc.get('user_name') or profile['username']
+            profile['avatar'] = (user_doc.get('photo_url') or user_doc.get('avatar') or user_doc.get('avatar_url') or user_doc.get('picture') or user_doc.get('image') or None)
+        if not profile['firstname']:
+            profile['firstname'] = DEFAULT_NAME
+        if not profile['avatar']:
+            try:
+                if registered_users is not None:
+                    ru = registered_users.find_one({'user_id': uid_s})
+                    if isinstance(ru, dict):
+                        profile['avatar'] = ru.get('photo_url') or ru.get('avatar') or profile['avatar']
+            except Exception:
+                pass
+        if not profile['avatar']:
+            profile['avatar'] = DEFAULT_AVATAR
+
+        items = []
+        try:
+            if isinstance(user_doc, dict):
+                chars = user_doc.get('characters') or user_doc.get('collection') or user_doc.get('my_chars') or []
+                if isinstance(chars, list):
+                    for c in chars:
+                        try:
+                            item = {
+                                "id": str(c.get('id') or c.get('_id') or c.get('char_id') or ''),
+                                "name": c.get('name') or c.get('title') or c.get('character_name') or 'Unknown',
+                                "rarity": c.get('rarity') or c.get('rank') or None,
+                                "avatar": c.get('avatar') or c.get('image') or c.get('photo') or DEFAULT_AVATAR
+                            }
+                            items.append(item)
+                        except Exception:
+                            continue
+            if not items and waifu_users_coll is not None:
+                try:
+                    cursor = waifu_users_coll.find({'user_id': uid_s}, {'_id': 0, 'id': 1, 'name': 1, 'title': 1, 'avatar': 1, 'image': 1})
+                    for d in cursor:
+                        items.append({
+                            "id": str(d.get('id') or ''),
+                            "name": d.get('name') or d.get('title') or 'Unknown',
+                            "rarity": d.get('rarity') or None,
+                            "avatar": _try_many_fields_for_avatar(d) or DEFAULT_AVATAR
+                        })
+                except Exception:
+                    pass
+            if not items and husband_users_coll is not None:
+                try:
+                    cursor = husband_users_coll.find({'user_id': uid_s}, {'_id': 0, 'id': 1, 'name': 1, 'title': 1, 'avatar': 1, 'image': 1})
+                    for d in cursor:
+                        items.append({
+                            "id": str(d.get('id') or ''),
+                            "name": d.get('name') or d.get('title') or 'Unknown',
+                            "rarity": d.get('rarity') or None,
+                            "avatar": _try_many_fields_for_avatar(d) or DEFAULT_AVATAR
+                        })
+                except Exception:
+                    pass
+        except Exception:
+            items = []
+
+        return jsonify({"ok": True, "profile": profile, "items": items})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route('/api/top')
 def api_top():
     try:
@@ -424,23 +678,21 @@ def api_top():
             limit = 100
         typ = (request.args.get('type') or '').lower().strip()
 
-        # If no specific type and top_global available: prefer it
+        # use top_global if no type requested
         if top_global_coll is not None and not typ:
             try:
                 cursor = top_global_coll.find({}, {"_id": 0}).sort("charms", -1).limit(limit)
                 items = []
                 rank = 1
                 for doc in cursor:
-                    # basic values
                     uid = str(doc.get('user_id') or doc.get('_id') or '')
                     name = doc.get('firstname') or DEFAULT_NAME
                     username = doc.get('username') or None
                     avatar = doc.get('avatar') or None
                     charms = int(doc.get('charms') or 0)
 
-                    # if avatar is default-ish or missing, attempt to find better avatar from other sources
+                    # try to improve avatar if default
                     if not avatar or avatar == DEFAULT_AVATAR:
-                        # try registered_users
                         try:
                             if registered_users is not None:
                                 d = registered_users.find_one({'user_id': uid})
@@ -450,20 +702,18 @@ def api_top():
                                     username = username or d.get('username')
                         except Exception:
                             pass
-                        # try global profiles
                         if (not avatar) and global_user_profiles_coll is not None:
                             try:
-                                d = global_user_profiles_coll.find_one({'user_id': uid}) or global_user_profiles_coll.find_one({'id': uid})
+                                d = _find_doc_in_coll_variants(global_user_profiles_coll, uid)
                                 if d:
                                     avatar = _try_many_fields_for_avatar(d) or avatar
                                     name = d.get('firstname') or name
                                     username = username or d.get('username')
                             except Exception:
                                 pass
-                        # try waifu/husband
                         if (not avatar) and waifu_users_coll is not None:
                             try:
-                                d = waifu_users_coll.find_one({'id': uid}) or waifu_users_coll.find_one({'user_id': uid})
+                                d = _find_doc_in_coll_variants(waifu_users_coll, uid)
                                 if d:
                                     avatar = _try_many_fields_for_avatar(d) or avatar
                                     name = d.get('first_name') or d.get('firstname') or name
@@ -472,7 +722,7 @@ def api_top():
                                 pass
                         if (not avatar) and husband_users_coll is not None:
                             try:
-                                d = husband_users_coll.find_one({'id': uid}) or husband_users_coll.find_one({'user_id': uid})
+                                d = _find_doc_in_coll_variants(husband_users_coll, uid)
                                 if d:
                                     avatar = _try_many_fields_for_avatar(d) or avatar
                                     name = d.get('first_name') or d.get('firstname') or name
@@ -498,7 +748,7 @@ def api_top():
             except Exception:
                 pass
 
-        # redis key selection
+        # else use redis or collection aggregation
         redis_key = 'leaderboard:charms'
         users_coll = None
         if typ == 'waifu':
@@ -515,7 +765,7 @@ def api_top():
         except Exception:
             raw = []
 
-        # If type-specific and no per-type redis, aggregate from collection instead of falling back to global
+        # if type requested and per-type empty, aggregate from collection
         if not raw and typ in ('waifu', 'husband'):
             if users_coll is not None:
                 try:
@@ -529,7 +779,6 @@ def api_top():
                 except Exception:
                     raw = []
 
-        # If still empty and no type specified, fallback to global redis
         if not raw and typ == '':
             try:
                 if r is not None:
@@ -537,7 +786,7 @@ def api_top():
             except Exception:
                 raw = []
 
-        # final fallback: build from registered_users
+        # fallback to registered_users
         if not raw:
             raw = []
             if registered_users is not None:
@@ -554,7 +803,6 @@ def api_top():
                 except Exception:
                     raw = []
 
-        # build final items and enrich avatars/names from multiple sources
         items = []
         rank = 1
         for member, score in raw:
@@ -563,7 +811,6 @@ def api_top():
             username = None
             avatar = None
 
-            # prefer top_global_coll doc for name/avatar if exists
             if top_global_coll is not None:
                 try:
                     doc = top_global_coll.find_one({'user_id': uid})
@@ -574,22 +821,9 @@ def api_top():
                 except Exception:
                     pass
 
-            # try registered_users
-            if (not avatar or avatar == DEFAULT_AVATAR):
+            if (not avatar or avatar == DEFAULT_AVATAR) and registered_users is not None:
                 try:
-                    if registered_users is not None:
-                        d = registered_users.find_one({'user_id': uid})
-                        if d:
-                            avatar = _try_many_fields_for_avatar(d) or avatar
-                            name = d.get('firstname') or name
-                            username = username or d.get('username')
-                except Exception:
-                    pass
-
-            # try global profile
-            if (not avatar or avatar == DEFAULT_AVATAR) and global_user_profiles_coll is not None:
-                try:
-                    d = global_user_profiles_coll.find_one({'user_id': uid}) or global_user_profiles_coll.find_one({'id': uid})
+                    d = registered_users.find_one({'user_id': uid})
                     if d:
                         avatar = _try_many_fields_for_avatar(d) or avatar
                         name = d.get('firstname') or name
@@ -597,10 +831,19 @@ def api_top():
                 except Exception:
                     pass
 
-            # waifu/husband fallbacks
+            if (not avatar or avatar == DEFAULT_AVATAR) and global_user_profiles_coll is not None:
+                try:
+                    d = _find_doc_in_coll_variants(global_user_profiles_coll, uid)
+                    if d:
+                        avatar = _try_many_fields_for_avatar(d) or avatar
+                        name = d.get('firstname') or name
+                        username = username or d.get('username')
+                except Exception:
+                    pass
+
             if (not avatar or avatar == DEFAULT_AVATAR) and waifu_users_coll is not None:
                 try:
-                    d = waifu_users_coll.find_one({'id': uid}) or waifu_users_coll.find_one({'user_id': uid})
+                    d = _find_doc_in_coll_variants(waifu_users_coll, uid)
                     if d:
                         avatar = _try_many_fields_for_avatar(d) or avatar
                         name = d.get('first_name') or d.get('firstname') or name
@@ -610,7 +853,7 @@ def api_top():
 
             if (not avatar or avatar == DEFAULT_AVATAR) and husband_users_coll is not None:
                 try:
-                    d = husband_users_coll.find_one({'id': uid}) or husband_users_coll.find_one({'user_id': uid})
+                    d = _find_doc_in_coll_variants(husband_users_coll, uid)
                     if d:
                         avatar = _try_many_fields_for_avatar(d) or avatar
                         name = d.get('first_name') or d.get('firstname') or name
@@ -667,19 +910,19 @@ def api_rebuild_top_global():
                 username = None
                 try:
                     if global_user_profiles_coll is not None:
-                        d = global_user_profiles_coll.find_one({'user_id': str(uid)}) or global_user_profiles_coll.find_one({'id': str(uid)})
+                        d = _find_doc_in_coll_variants(global_user_profiles_coll, str(uid))
                         if d:
                             firstname = d.get('firstname') or d.get('first_name') or firstname
                             username = d.get('username') or username
                             avatar = _try_many_fields_for_avatar(d) or avatar
                     if firstname == DEFAULT_NAME and waifu_users_coll is not None:
-                        d2 = waifu_users_coll.find_one({'id': str(uid)}) or waifu_users_coll.find_one({'user_id': str(uid)})
+                        d2 = _find_doc_in_coll_variants(waifu_users_coll, str(uid))
                         if d2:
                             firstname = d2.get('first_name') or d2.get('firstname') or firstname
                             username = username or d2.get('username')
                             avatar = avatar or _try_many_fields_for_avatar(d2)
                     if (avatar == DEFAULT_AVATAR or not avatar) and husband_users_coll is not None:
-                        d3 = husband_users_coll.find_one({'id': str(uid)}) or husband_users_coll.find_one({'user_id': str(uid)})
+                        d3 = _find_doc_in_coll_variants(husband_users_coll, str(uid))
                         if d3:
                             firstname = firstname or d3.get('first_name') or d3.get('firstname')
                             username = username or d3.get('username')
