@@ -181,8 +181,8 @@ try:
 
 # --- REPLACE or ADD these snippets in app.py ---
 
-# 1) enhanced upsert logging (replace existing upsert_top_global)
-def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
+    # 1) enhanced upsert logging (replace existing upsert_top_global)
+    def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
     """
     Ensure top_global_db and Redis hold latest profile/charms for uid.
     Also log to stdout so Heroku logs show what's happening.
