@@ -1,8 +1,6 @@
-# app.py (defensive boot + detailed init error endpoint)
+# app.py
 import os
-import io
 import json
-import base64
 import traceback
 from datetime import datetime
 from typing import Any
@@ -25,12 +23,7 @@ try:
 except Exception:
     redis = None
 
-try:
-    import qrcode
-except Exception:
-    qrcode = None
-
-# helper to safely parse ints from env
+# safe int parser
 def safe_int(v, default):
     try:
         if v is None:
@@ -39,19 +32,18 @@ def safe_int(v, default):
     except Exception:
         return default
 
-# default values (can be overridden by env)
+# defaults (env override)
 DEFAULT_AVATAR = os.getenv('DEFAULT_AVATAR', 'https://picsum.photos/200')
 DEFAULT_NAME = os.getenv('DEFAULT_NAME', 'Traveler')
 
-# Keep a container for init error (traceback string) if any happens during heavy init
-_initialization_error = None
-
-# Create Flask app early so Gunicorn can import module without failing.
+# flask app early
 app = Flask(__name__, static_folder='static', template_folder='templates')
 
-# We'll attempt full initialization inside try/except so that import-time exceptions are captured
+# capture init error
+_init_error = None
+
 try:
-    # ================ CONFIG (safe parsing) ================
+    # ---------- config ----------
     MONGO_URI = os.getenv('MONGO_URI', "mongodb+srv://Keepwaifu:Keepwaifu@cluster0.i8aca.mongodb.net/?retryWrites=true&w=majority")
     MARKET_DB_URL = os.getenv('MARKET_DB_URL', MONGO_URI)
     MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
@@ -61,13 +53,12 @@ try:
     REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 13380)
     REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
 
-    # ================ DB initialization helpers ================
+    # ---------- helpers to init clients ----------
     def safe_mongo(uri: str):
         if MongoClient is None:
             return None
         try:
             client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-            # try ping but do not fail if ping errors
             try:
                 client.admin.command('ping')
             except Exception:
@@ -80,7 +71,8 @@ try:
         if redis is None:
             return None
         try:
-            r = redis.Redis(host=host, port=port, password=password, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
+            r = redis.Redis(host=host, port=port, password=password, decode_responses=True,
+                            socket_connect_timeout=5, socket_timeout=5)
             try:
                 r.ping()
             except Exception:
@@ -89,12 +81,11 @@ try:
         except Exception:
             return None
 
-    # init clients
+    # ---------- init clients ----------
     market_client = safe_mongo(MARKET_DB_URL)
     waifu_client = safe_mongo(MONGO_URL_WAIFU)
     husband_client = safe_mongo(MONGO_URL_HUSBAND)
 
-    # fallback reuse market_client if the type-specific client is not available
     if waifu_client is None:
         waifu_client = market_client
     if husband_client is None:
@@ -110,7 +101,8 @@ try:
         except Exception:
             return None
 
-    # collections (avoid truth-testing Collection objects)
+    # ---------- collections ----------
+    # Note: avoid truth-testing Collection objects (use is None)
     waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_lmaoooo')
     if waifu_users_coll is None:
         waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_waifu')
@@ -121,21 +113,29 @@ try:
 
     registered_users = None
     global_user_profiles_coll = None
+    top_global_coll = None  # new collection to store global top/profile cache
+
     if market_client is not None:
         try:
             registered_users = market_client['Character_catcher']['registered_users']
         except Exception:
             registered_users = None
+        # prefer the exact name user_collection_lmoooo for miniapps profiles (you mentioned this)
         try:
             global_user_profiles_coll = market_client['Character_catcher']['user_collection_lmoooo']
         except Exception:
-            # tolerate slight naming differences
             try:
                 global_user_profiles_coll = market_client['Character_catcher']['user_collection_lmaoooo']
             except Exception:
                 global_user_profiles_coll = None
 
-    # ================ HELPERS ================
+        # create/get top_global_db collection
+        try:
+            top_global_coll = market_client['Character_catcher']['top_global_db']
+        except Exception:
+            top_global_coll = None
+
+    # ---------- helpers ----------
     def serialize_mongo(obj: Any):
         if isinstance(obj, list):
             return [serialize_mongo(i) for i in obj]
@@ -155,7 +155,23 @@ try:
             return out
         return obj
 
-    def get_charms(uid):
+    def _try_many_fields_for_avatar(doc: Any):
+        if not isinstance(doc, dict):
+            return None
+        avatar = None
+        try:
+            avatar = doc.get('photo_url') or doc.get('avatar') or doc.get('avatar_url') or doc.get('picture')
+        except Exception:
+            avatar = None
+        try:
+            profile = doc.get('profile') or doc.get('profile_info') or None
+        except Exception:
+            profile = None
+        if isinstance(profile, dict):
+            avatar = avatar or profile.get('avatar') or profile.get('photo') or profile.get('picture')
+        return avatar
+
+    def get_charms(uid: str) -> int:
         try:
             if r is None:
                 return 0
@@ -163,13 +179,72 @@ try:
         except Exception:
             return 0
 
-    def update_charms(uid, amt, typ=None):
+    # NEW: upsert to top_global_db (mongodb) and to Redis hash
+    def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
+        """
+        Ensure top_global_db and Redis hold latest profile/charms for uid.
+        Fields in top_global_db: user_id, username, firstname, avatar, charms, updated_at
+        """
+        uid_s = str(uid)
+        # determine current charms
+        charms = get_charms(uid_s)
+        now = datetime.utcnow()
+
+        # write to redis hash if available
+        if r is not None:
+            try:
+                mapping = {}
+                if avatar is not None:
+                    mapping['avatar'] = avatar
+                if username is not None:
+                    mapping['username'] = username
+                if firstname is not None:
+                    mapping['firstname'] = firstname
+                # always keep charms in redis
+                mapping['charm'] = str(charms)
+                if mapping:
+                    r.hset(f"user:{uid_s}", mapping=mapping)
+                # update sorted sets too (score)
+                r.zadd('leaderboard:charms', {str(uid_s): charms})
+            except Exception:
+                pass
+
+        # write to mongo top_global_db
+        if top_global_coll is not None:
+            try:
+                doc = {
+                    'user_id': uid_s,
+                    'username': username,
+                    'firstname': firstname,
+                    'avatar': avatar,
+                    'charms': int(charms),
+                    'updated_at': now
+                }
+                # upsert (only set provided fields)
+                top_global_coll.update_one({'user_id': uid_s}, {'$set': doc}, upsert=True)
+            except Exception:
+                pass
+
+    def update_charms(uid: str, amt: int, typ: str = None) -> bool:
+        """
+        Increments charms both in redis and top_global_db.
+        """
         try:
             if r is None:
+                # no redis: try to update mongo top_global only (if exists)
+                if top_global_coll is not None:
+                    try:
+                        # increment charms in mongo doc
+                        res = top_global_coll.find_one_and_update({'user_id': str(uid)}, {'$inc': {'charms': int(amt)}, '$set': {'updated_at': datetime.utcnow()}}, upsert=True)
+                        return True
+                    except Exception:
+                        return False
                 return False
+
+            # increment in redis
             r.hincrby(f"user:{uid}", "charm", amt)
             current = get_charms(uid)
-            # ensure keys only used when r available
+            # update leaderboards
             r.zadd('leaderboard:charms', {str(uid): current})
             if typ and str(typ).lower() in ('waifu', 'husband'):
                 r.zadd(f'leaderboard:charms:{typ}', {str(uid): current})
@@ -177,33 +252,96 @@ try:
                 r.publish('charms_updates', json.dumps({"user_id": str(uid), "charms": current, "type": typ}))
             except Exception:
                 pass
+
+            # update top_global_db
+            if top_global_coll is not None:
+                try:
+                    # set charms to current (upsert doc if missing)
+                    top_global_coll.update_one({'user_id': str(uid)}, {'$set': {'charms': int(current), 'updated_at': datetime.utcnow()}}, upsert=True)
+                except Exception:
+                    pass
+
             return True
         except Exception:
             return False
 
-    def ensure_user_profile(uid, first_name=None, username=None, avatar=None):
+    def ensure_user_profile(uid: str, first_name: str = None, username: str = None, avatar: str = None):
+        """
+        Upsert into registered_users (if available), then ensure top_global and redis reflect data.
+        Also attempt to fill missing username/firstname from global_user_profiles_coll or from user_collection_lmaoooo.
+        """
         if uid is None:
             return None
-        uid_str = str(uid)
-        if registered_users is None:
-            return {'user_id': uid_str, 'firstname': first_name or DEFAULT_NAME, 'username': username, 'photo_url': avatar or DEFAULT_AVATAR}
-        try:
-            update = {}
-            if first_name is not None:
-                update['firstname'] = first_name
-            if username is not None:
-                update['username'] = username
-            if avatar is not None:
-                update['photo_url'] = avatar
-            if update:
-                update['user_id'] = uid_str
-                registered_users.update_one({'user_id': uid_str}, {'$set': update}, upsert=True)
-            else:
-                registered_users.update_one({'user_id': uid_str}, {'$setOnInsert': {'user_id': uid_str, 'firstname': DEFAULT_NAME, 'photo_url': DEFAULT_AVATAR}}, upsert=True)
-            return registered_users.find_one({'user_id': uid_str})
-        except Exception:
-            return {'user_id': uid_str, 'firstname': first_name or DEFAULT_NAME, 'username': username, 'photo_url': avatar or DEFAULT_AVATAR}
+        uid_s = str(uid)
 
+        # first: if registered_users available, update it
+        doc_from_db = None
+        if registered_users is not None:
+            try:
+                update = {}
+                if first_name is not None:
+                    update['firstname'] = first_name
+                if username is not None:
+                    update['username'] = username
+                if avatar is not None:
+                    update['photo_url'] = avatar
+                if update:
+                    update['user_id'] = uid_s
+                    registered_users.update_one({'user_id': uid_s}, {'$set': update}, upsert=True)
+                else:
+                    registered_users.update_one({'user_id': uid_s}, {'$setOnInsert': {'user_id': uid_s, 'firstname': DEFAULT_NAME, 'photo_url': DEFAULT_AVATAR}}, upsert=True)
+                doc_from_db = registered_users.find_one({'user_id': uid_s})
+            except Exception:
+                doc_from_db = None
+
+        # if username/firstname missing, try to get from global_user_profiles_coll
+        if (not username or not first_name) and global_user_profiles_coll is not None:
+            try:
+                alt = global_user_profiles_coll.find_one({'user_id': uid_s}) or global_user_profiles_coll.find_one({'id': uid_s})
+                if alt is None and uid_s.isdigit():
+                    alt = global_user_profiles_coll.find_one({'id': int(uid_s)})
+                if alt:
+                    if not first_name:
+                        first_name = alt.get('firstname') or alt.get('first_name') or alt.get('displayName') or first_name
+                    if not username:
+                        username = alt.get('username') or alt.get('user_name') or alt.get('handle') or username
+                    if not avatar:
+                        avatar = _try_many_fields_for_avatar(alt) or avatar
+            except Exception:
+                pass
+
+        # also attempt to read from user_collection_lmaoooo in waifu/husband coll (per your request)
+        # prefer waifu_users_coll then husband_users_coll
+        if (not username or not first_name) and waifu_users_coll is not None:
+            try:
+                alt = waifu_users_coll.find_one({'id': uid_s}) or waifu_users_coll.find_one({'user_id': uid_s})
+                if alt is None and uid_s.isdigit():
+                    alt = waifu_users_coll.find_one({'id': int(uid_s)})
+                if alt:
+                    if not first_name:
+                        first_name = alt.get('first_name') or alt.get('firstname') or first_name
+                    if not username:
+                        username = alt.get('username') or username
+                    if not avatar:
+                        avatar = _try_many_fields_for_avatar(alt) or avatar
+            except Exception:
+                pass
+
+        # final defaults
+        if not first_name:
+            first_name = DEFAULT_NAME
+        if avatar is None:
+            avatar = DEFAULT_AVATAR
+
+        # ensure redis & top_global updated
+        upsert_top_global(uid_s, firstname=first_name, username=username, avatar=avatar)
+
+        # return the registered_users doc if exists, else a synthesized dict
+        if isinstance(doc_from_db, dict):
+            return doc_from_db
+        return {'user_id': uid_s, 'firstname': first_name, 'username': username, 'photo_url': avatar}
+
+    # helper: aggregate top from users coll (unchanged)
     def build_top_from_users_coll(users_coll, limit=100):
         if users_coll is None:
             return []
@@ -219,182 +357,110 @@ try:
         except Exception:
             return []
 
-    def _try_many_fields_for_avatar(doc):
-        if not isinstance(doc, dict):
-            return None
-        avatar = None
-        try:
-            avatar = doc.get('photo_url') or doc.get('avatar') or doc.get('avatar_url') or doc.get('picture')
-        except Exception:
-            avatar = None
-        profile = None
-        try:
-            profile = doc.get('profile') or doc.get('profile_info') or None
-        except Exception:
-            profile = None
-        if isinstance(profile, dict):
-            avatar = avatar or profile.get('avatar') or profile.get('photo') or profile.get('picture')
-        return avatar
-
-    def fetch_profile_fallback(uid, users_coll=None):
-        if uid is None:
-            return {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
-        uid_str = str(uid)
-        # 1) registered_users
-        if registered_users is not None:
-            try:
-                doc = registered_users.find_one({'user_id': uid_str}) or registered_users.find_one({'id': uid_str})
-                if doc is None and uid_str.isdigit():
-                    doc = registered_users.find_one({'id': int(uid_str)})
-                if doc:
-                    name = doc.get('firstname') or doc.get('first_name') or doc.get('name') or DEFAULT_NAME
-                    username = doc.get('username') or doc.get('user_name') or None
-                    avatar = _try_many_fields_for_avatar(doc) or None
-                    return {'name': name, 'username': username, 'avatar': avatar}
-            except Exception:
-                pass
-        # 2) global miniapps collection
-        if global_user_profiles_coll is not None:
-            try:
-                doc = global_user_profiles_coll.find_one({'user_id': uid_str}) or global_user_profiles_coll.find_one({'id': uid_str})
-                if doc is None and uid_str.isdigit():
-                    doc = global_user_profiles_coll.find_one({'id': int(uid_str)})
-                if doc:
-                    name = doc.get('firstname') or doc.get('first_name') or doc.get('name') or doc.get('displayName') or DEFAULT_NAME
-                    username = doc.get('username') or doc.get('user_name') or doc.get('handle') or None
-                    avatar = _try_many_fields_for_avatar(doc) or None
-                    return {'name': name, 'username': username, 'avatar': avatar}
-            except Exception:
-                pass
-        # 3) users collection (waifu/husband)
-        if users_coll is not None:
-            try:
-                doc = users_coll.find_one({'user_id': uid_str}) or users_coll.find_one({'id': uid_str})
-                if doc is None and uid_str.isdigit():
-                    doc = users_coll.find_one({'id': int(uid_str)})
-                if doc:
-                    name = doc.get('first_name') or doc.get('firstname') or doc.get('name') or DEFAULT_NAME
-                    username = doc.get('username') or doc.get('user_name') or None
-                    avatar = _try_many_fields_for_avatar(doc) or None
-                    return {'name': name, 'username': username, 'avatar': avatar}
-            except Exception:
-                pass
-        return {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
-
-    # ===== END initialization; everything below relies on the helpers above =====
-
 except Exception:
-    # capture full trace for debugging (exposed by /__init_error)
-    _initialization_error = traceback.format_exc()
-    # set safe fallbacks to avoid NameError in route functions
-    market_client = None
-    waifu_client = None
-    husband_client = None
-    waifu_users_coll = None
-    husband_users_coll = None
-    registered_users = None
-    global_user_profiles_coll = None
+    _init_error = traceback.format_exc()
+    # minimal safe fallbacks (to avoid NameError in routes)
+    market_client = waifu_client = husband_client = None
+    registered_users = global_user_profiles_coll = top_global_coll = None
     r = None
+    def serialize_mongo(x): return x
+    def get_charms(uid): return 0
+    def update_charms(uid, amt, typ=None): return False
+    def ensure_user_profile(uid, first_name=None, username=None, avatar=None): return {'user_id': str(uid), 'firstname': first_name or DEFAULT_NAME, 'username': username, 'photo_url': avatar or DEFAULT_AVATAR}
+    def upsert_top_global(uid, firstname=None, username=None, avatar=None): return None
+    def build_top_from_users_coll(users_coll, limit=100): return []
 
-    # define minimal safe helpers so routes still work (return defaults)
-    def serialize_mongo(obj):
-        return obj
-
-    def get_charms(uid):
-        return 0
-
-    def update_charms(uid, amt, typ=None):
-        return False
-
-    def ensure_user_profile(uid, first_name=None, username=None, avatar=None):
-        if uid is None:
-            return None
-        return {'user_id': str(uid), 'firstname': first_name or DEFAULT_NAME, 'username': username, 'photo_url': avatar or DEFAULT_AVATAR}
-
-    def build_top_from_users_coll(users_coll, limit=100):
-        return []
-
-    def _try_many_fields_for_avatar(doc):
-        return None
-
-    def fetch_profile_fallback(uid, users_coll=None):
-        return {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
-
-
-# ================= ROUTES (safe to call even if init failed) =================
+# ================= ROUTES =================
 @app.route('/')
 def index():
-    # If init error exists, show a minimal page indicating the server started but init failed.
-    if _initialization_error:
-        return (
-            "<h3>App started — but initialization failed</h3>"
-            "<p>Check <a href='/__init_error'>/__init_error</a> for details (Heroku logs will also show trace).</p>"
-        ), 500
+    if _init_error:
+        return ("<h3>App started but init failed</h3>"
+                "<p>Check <a href='/__init_error'>/__init_error</a> for details.</p>"), 500
     return render_template('index.html')
 
 @app.route('/__init_error')
-def init_error():
-    # expose init trace only if exists (helpful for debugging in staging)
-    if _initialization_error:
-        return Response(_initialization_error, mimetype='text/plain'), 500
-    return jsonify({"ok": True, "msg": "no initialization error"}), 200
+def show_init_error():
+    if _init_error:
+        return Response(_init_error, mimetype='text/plain'), 500
+    return jsonify({"ok": True, "msg": "no init error"}), 200
 
-@app.route('/api/user_info')
+@app.route('/api/user_info', methods=['GET', 'POST'])
 def api_user_info():
-    uid = request.args.get('user_id')
-    firstname = request.args.get('firstname')
-    username = request.args.get('username')
-    avatar = request.args.get('avatar')
+    # Accept both GET query params and POST json
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form.to_dict()
+    else:
+        data = request.args.to_dict()
+
+    uid = data.get('user_id') or data.get('id') or data.get('uid')
+    firstname = data.get('firstname') or data.get('first_name') or None
+    username = data.get('username') or data.get('user_name') or None
+    avatar = data.get('avatar') or data.get('photo_url') or data.get('avatar_url') or None
+
     if uid is None:
         return jsonify({"ok": False, "error": "missing user_id"}), 400
+
+    # ensure user profile saved and update top_global_db + redis
     doc = ensure_user_profile(uid, first_name=firstname, username=username, avatar=avatar)
+
+    # respond with canonical fields
+    uid_s = str(uid)
+    # read charms from redis if available
+    charms = get_charms(uid_s)
+
     return jsonify({
         "ok": True,
-        "id": str(uid),
+        "id": uid_s,
         "name": (firstname or (doc.get('firstname') if isinstance(doc, dict) else DEFAULT_NAME) or DEFAULT_NAME),
         "username": (username or (doc.get('username') if isinstance(doc, dict) else None)),
         "avatar": (avatar or (doc.get('photo_url') if isinstance(doc, dict) else DEFAULT_AVATAR) or DEFAULT_AVATAR),
-        "balance": get_charms(uid)
+        "balance": charms
     })
-
-@app.route('/api/my_collection')
-def api_my_collection():
-    uid = request.args.get('user_id')
-    db_type = request.args.get('type', 'waifu')
-    users_coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
-    try:
-        if users_coll is None:
-            return jsonify({"ok": True, "items": []})
-        # tolerant find (string or int)
-        if uid and uid.isdigit():
-            user_doc = users_coll.find_one({'id': str(uid)}) or users_coll.find_one({'id': int(uid)})
-        else:
-            user_doc = users_coll.find_one({'id': str(uid)})
-        if not user_doc:
-            return jsonify({"ok": True, "items": []})
-        items = user_doc.get('characters') or user_doc.get('waifu') or user_doc.get('husband') or user_doc.get('char') or []
-        items = serialize_mongo(items)
-        return jsonify({"ok": True, "items": items})
-    except Exception as e:
-        return jsonify({"ok": False, "items": [], "error": str(e)}), 500
 
 @app.route('/api/top')
 def api_top():
+    """
+    Prefer top_global_db as source of truth if available.
+    Otherwise fall back to Redis leaderboards or aggregate from users coll.
+    """
     try:
         limit = safe_int(request.args.get('limit'), 100)
         if limit <= 0 or limit > 100:
             limit = 100
         typ = (request.args.get('type') or '').lower()
 
+        # if we have top_global_db, use it (sorted by charms desc)
+        items = []
+        if top_global_coll is not None:
+            try:
+                cursor = top_global_coll.find({}, {"_id": 0}).sort("charms", -1).limit(limit)
+                rank = 1
+                for doc in cursor:
+                    items.append({
+                        "rank": rank,
+                        "user_id": str(doc.get('user_id')),
+                        "name": doc.get('firstname') or DEFAULT_NAME,
+                        "username": doc.get('username') or None,
+                        "avatar": doc.get('avatar') or DEFAULT_AVATAR,
+                        "charms": int(doc.get('charms') or 0),
+                        "score": int(doc.get('charms') or 0),
+                        "count": int(doc.get('charms') or 0)
+                    })
+                    rank += 1
+                return jsonify({"ok": True, "items": items})
+            except Exception:
+                # if mongo read fails, fallback to below logic
+                pass
+
+        # else: try redis leaderboard first
+        redis_key = 'leaderboard:charms'
+        users_coll = None
         if typ == 'waifu':
             redis_key = 'leaderboard:charms:waifu'
             users_coll = waifu_users_coll
         elif typ == 'husband':
             redis_key = 'leaderboard:charms:husband'
             users_coll = husband_users_coll
-        else:
-            redis_key = 'leaderboard:charms'
-            users_coll = None
 
         raw = []
         try:
@@ -403,7 +469,7 @@ def api_top():
         except Exception:
             raw = []
 
-        # fallback to global charms if type-specific empty
+        # fallback to global if type-specific empty
         if not raw and redis_key != 'leaderboard:charms':
             try:
                 if r is not None:
@@ -411,146 +477,154 @@ def api_top():
             except Exception:
                 raw = []
 
-        # fallback to aggregate from users collection
+        # final fallback: aggregate from users_coll
         if not raw:
             if users_coll is not None:
-                agg_docs = build_top_from_users_coll(users_coll, limit=limit)
+                agg = build_top_from_users_coll(users_coll, limit=limit)
                 raw = []
-                for doc in agg_docs:
-                    uid = doc.get('user_id') or doc.get('id') or doc.get('user_id')
+                for d in agg:
+                    uid = d.get('user_id') or d.get('id') or d.get('user_id')
                     if not uid:
                         continue
-                    raw.append((str(uid), int(doc.get('character_count') or 0)))
+                    raw.append((str(uid), int(d.get('character_count') or 0)))
             else:
-                fallback = []
+                # fallback using registered_users -> get charms from redis
+                raw = []
                 if registered_users is not None:
                     try:
                         for u in registered_users.find({}, {'user_id': 1}):
                             uid = u.get('user_id')
                             if not uid:
                                 continue
-                            charms = get_charms(uid)
-                            if charms > 0:
-                                fallback.append((str(uid), int(charms)))
-                        fallback.sort(key=lambda x: -x[1])
-                        raw = fallback[:limit]
+                            c = get_charms(uid)
+                            if c > 0:
+                                raw.append((str(uid), int(c)))
+                        raw.sort(key=lambda x: -x[1])
+                        raw = raw[:limit]
                     except Exception:
                         raw = []
 
-        items = []
+        # build final items from raw list (and consult top_global_coll to enrich if possible)
         rank = 1
-        for idx, (member, score) in enumerate(raw):
+        items = []
+        for member, score in raw:
             uid = str(member)
-            profile = {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
-            try:
-                profile = fetch_profile_fallback(uid, users_coll=users_coll) or profile
-            except Exception:
-                pass
-
-            avatar = profile.get('avatar') or None
-            if not avatar and global_user_profiles_coll is not None:
+            # try to enrich from top_global_coll if available
+            name = DEFAULT_NAME
+            username = None
+            avatar = None
+            if top_global_coll is not None:
                 try:
-                    alt = global_user_profiles_coll.find_one({'user_id': uid}) or global_user_profiles_coll.find_one({'id': uid})
-                    if alt is None and uid.isdigit():
-                        alt = global_user_profiles_coll.find_one({'id': int(uid)})
-                    if alt:
-                        avatar = _try_many_fields_for_avatar(alt) or avatar
-                        if (not profile.get('name')) or profile.get('name') == DEFAULT_NAME:
-                            profile['name'] = alt.get('firstname') or alt.get('first_name') or alt.get('displayName') or profile.get('name')
-                        if not profile.get('username'):
-                            profile['username'] = alt.get('username') or alt.get('handle') or profile.get('username')
+                    doc = top_global_coll.find_one({'user_id': uid})
+                    if doc:
+                        name = doc.get('firstname') or name
+                        username = doc.get('username') or username
+                        avatar = doc.get('avatar') or avatar
                 except Exception:
                     pass
-
-            if not avatar:
+            # if not found in top_global_coll, attempt fetch_profile_fallback-like approach
+            if avatar is None:
+                # try registered_users
+                try:
+                    if registered_users is not None:
+                        d = registered_users.find_one({'user_id': uid})
+                        if d:
+                            avatar = d.get('photo_url') or avatar
+                            name = d.get('firstname') or name
+                            username = d.get('username') or username
+                except Exception:
+                    pass
+            if avatar is None and waifu_users_coll is not None:
+                try:
+                    d = waifu_users_coll.find_one({'id': uid}) or waifu_users_coll.find_one({'user_id': uid})
+                    if d:
+                        avatar = _try_many_fields_for_avatar(d) or avatar
+                        name = d.get('first_name') or d.get('firstname') or name
+                        username = d.get('username') or username
+                except Exception:
+                    pass
+            if avatar is None:
                 avatar = DEFAULT_AVATAR
 
-            name = profile.get('name') or DEFAULT_NAME
-            username = profile.get('username') or None
-
             items.append({
-                'rank': rank,
-                'user_id': uid,
-                'name': name,
-                'username': username,
-                'avatar': avatar,
-                'charms': int(score),
-                'score': int(score),
-                'count': int(score)
+                "rank": rank,
+                "user_id": uid,
+                "name": name,
+                "username": username,
+                "avatar": avatar,
+                "charms": int(score),
+                "score": int(score),
+                "count": int(score)
             })
             rank += 1
 
-        # if initialization had error, include a flag for easier debugging (non-sensitive)
-        meta = {}
-        if _initialization_error:
-            meta['init_error'] = True
-
-        return jsonify({"ok": True, "items": items, "meta": meta})
+        return jsonify({"ok": True, "items": items})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e), "items": []}), 500
 
-@app.route('/api/rebuild_leaderboard')
-def api_rebuild_leaderboard():
+@app.route('/api/rebuild_top_global')
+def api_rebuild_top_global():
+    """
+    Rebuild top_global_db from registered_users or from redis/waifu collections.
+    Useful to sync up if things get out of date.
+    """
+    if top_global_coll is None:
+        return jsonify({"ok": False, "error": "top_global_db collection not available"}), 400
     try:
-        typ = (request.args.get('type') or '').lower()
-        dry = request.args.get('dry') == '1'
-        if typ == 'waifu':
-            key = 'leaderboard:charms:waifu'
-            users_coll = waifu_users_coll
-        elif typ == 'husband':
-            key = 'leaderboard:charms:husband'
-            users_coll = husband_users_coll
-        else:
-            key = 'leaderboard:charms'
-            users_coll = None
-
-        if r is None:
-            return jsonify({"ok": False, "error": "redis not available"})
-
-        if users_coll is not None:
-            agg = build_top_from_users_coll(users_coll, limit=10000)
-            pipe = r.pipeline()
-            count = 0
-            for doc in agg:
-                uid = doc.get('user_id')
-                if not uid:
-                    continue
-                score = int(doc.get('character_count', 0))
-                if score > 0:
-                    count += 1
-                    if not dry:
-                        pipe.zadd(key, {str(uid): score})
-            if not dry:
-                pipe.execute()
-            return jsonify({"ok": True, "key": key, "count": count, "sample": agg[:20]})
-        else:
-            if registered_users is None:
-                return jsonify({"ok": False, "error": "no source collection available"})
-            pipe = r.pipeline()
-            count = 0
-            for u in registered_users.find({}, {'user_id': 1}):
+        limit = safe_int(request.args.get('limit'), 10000)
+        count = 0
+        # Option A: if registered_users exists, iterate it
+        if registered_users is not None:
+            for u in registered_users.find({}, {'user_id': 1, 'firstname': 1, 'photo_url': 1, 'username': 1}):
                 uid = u.get('user_id')
                 if not uid:
                     continue
-                c = get_charms(uid)
-                if c > 0:
-                    count += 1
-                    if not dry:
-                        pipe.zadd(key, {str(uid): int(c)})
-            if not dry:
-                pipe.execute()
-            return jsonify({"ok": True, "key": key, "count": count})
+                firstname = u.get('firstname') or DEFAULT_NAME
+                avatar = u.get('photo_url') or DEFAULT_AVATAR
+                username = u.get('username') or None
+                # charms from redis
+                charms = get_charms(uid)
+                top_global_coll.update_one({'user_id': str(uid)}, {'$set': {'user_id': str(uid), 'firstname': firstname, 'avatar': avatar, 'username': username, 'charms': int(charms), 'updated_at': datetime.utcnow()}}, upsert=True)
+                count += 1
+                if count >= limit:
+                    break
+            return jsonify({"ok": True, "count": count})
+        # Option B: fallback: scan redis leaderboard and try to enrich
+        if r is not None:
+            pairs = r.zrevrange('leaderboard:charms', 0, limit - 1, withscores=True)
+            for uid, score in pairs:
+                # try to get profile from global_user_profiles_coll or waifu_users_coll
+                firstname = DEFAULT_NAME
+                avatar = DEFAULT_AVATAR
+                username = None
+                try:
+                    if global_user_profiles_coll is not None:
+                        d = global_user_profiles_coll.find_one({'user_id': str(uid)}) or global_user_profiles_coll.find_one({'id': str(uid)})
+                        if d:
+                            firstname = d.get('firstname') or d.get('first_name') or firstname
+                            username = d.get('username') or username
+                            avatar = _try_many_fields_for_avatar(d) or avatar
+                    if firstname == DEFAULT_NAME and waifu_users_coll is not None:
+                        d2 = waifu_users_coll.find_one({'id': str(uid)}) or waifu_users_coll.find_one({'user_id': str(uid)})
+                        if d2:
+                            firstname = d2.get('first_name') or d2.get('firstname') or firstname
+                            username = username or d2.get('username')
+                            avatar = avatar or _try_many_fields_for_avatar(d2)
+                except Exception:
+                    pass
+                top_global_coll.update_one({'user_id': str(uid)}, {'$set': {'user_id': str(uid), 'firstname': firstname, 'username': username, 'avatar': avatar, 'charms': int(score), 'updated_at': datetime.utcnow()}}, upsert=True)
+            return jsonify({"ok": True, "count": len(pairs)})
+        return jsonify({"ok": False, "error": "no source to rebuild from"}), 400
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
 
-# SSE for charms updates
+# SSE stream left unchanged
 @app.route('/stream/charms')
 def stream_charms():
     def event_stream():
         if r is None:
-            # keep connection alive but no events
             while True:
                 yield "data: {}\n\n"
         pubsub = r.pubsub(ignore_subscribe_messages=True)
@@ -570,7 +644,7 @@ def stream_charms():
                 pass
     return Response(event_stream(), mimetype='text/event-stream')
 
-# local run helper
+# local runner
 if __name__ == "__main__":
-    port = safe_int(os.getenv("PORT"), 5000)
+    port = safe_int(os.getenv('PORT'), 5000)
     app.run(host="0.0.0.0", port=port, threaded=True)
