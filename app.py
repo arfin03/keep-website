@@ -573,103 +573,74 @@ def api_user_info():
         "balance": charms
     })
 
-# Minimal defensive route for my collection
-@app.route('/api/my_collection', methods=['GET'])
+# ================= FIXED MY COLLECTION =================
+
+@app.route('/api/my_collection')
 def api_my_collection():
+    uid = request.args.get('user_id')
+    db_type = request.args.get('type', 'waifu')
+
+    users_coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
+
     try:
-        uid = request.args.get('user_id') or request.args.get('uid') or request.args.get('id')
-        if not uid:
-            return jsonify({"ok": False, "error": "missing user_id"}), 400
-        uid_s = str(uid)
+        user_doc = (
+            users_coll.find_one({'id': str(uid)}) or
+            users_coll.find_one({'id': int(uid)})
+        )
 
-        def _find_user_doc(coll):
-            if coll is None:
-                return None
-            try:
-                doc = coll.find_one({'user_id': uid_s}) or coll.find_one({'id': uid_s})
-                if doc:
-                    return doc
-                if uid_s.isdigit():
-                    doc = coll.find_one({'id': int(uid_s)}) or coll.find_one({'user_id': int(uid_s)})
-                    if doc:
-                        return doc
-            except Exception:
-                return None
-            return None
+        if not user_doc:
+            return jsonify({"ok": True, "items": []})
 
-        user_doc = _find_user_doc(waifu_users_coll) or _find_user_doc(husband_users_coll)
-        if user_doc is None:
-            try:
-                user_doc = registered_users.find_one({'user_id': uid_s}) if registered_users is not None else None
-            except Exception:
-                user_doc = None
+        items = (
+            user_doc.get('characters') or
+            user_doc.get('waifu') or
+            user_doc.get('husband') or
+            user_doc.get('char') or
+            []
+        )
 
-        profile = {'user_id': uid_s, 'firstname': None, 'username': None, 'avatar': None}
-        if isinstance(user_doc, dict):
-            profile['firstname'] = user_doc.get('first_name') or user_doc.get('firstname') or user_doc.get('name') or profile['firstname']
-            profile['username'] = user_doc.get('username') or user_doc.get('user_name') or profile['username']
-            profile['avatar'] = (user_doc.get('photo_url') or user_doc.get('avatar') or user_doc.get('avatar_url') or user_doc.get('picture') or user_doc.get('image') or None)
-        if not profile['firstname']:
-            profile['firstname'] = DEFAULT_NAME
-        if not profile['avatar']:
-            try:
-                if registered_users is not None:
-                    ru = registered_users.find_one({'user_id': uid_s})
-                    if isinstance(ru, dict):
-                        profile['avatar'] = ru.get('photo_url') or ru.get('avatar') or profile['avatar']
-            except Exception:
-                pass
-        if not profile['avatar']:
-            profile['avatar'] = DEFAULT_AVATAR
+        items = serialize_mongo(items)
 
-        items = []
-        try:
-            if isinstance(user_doc, dict):
-                chars = user_doc.get('characters') or user_doc.get('collection') or user_doc.get('my_chars') or []
-                if isinstance(chars, list):
-                    for c in chars:
-                        try:
-                            item = {
-                                "id": str(c.get('id') or c.get('_id') or c.get('char_id') or ''),
-                                "name": c.get('name') or c.get('title') or c.get('character_name') or 'Unknown',
-                                "rarity": c.get('rarity') or c.get('rank') or None,
-                                "avatar": c.get('avatar') or c.get('image') or c.get('photo') or DEFAULT_AVATAR
-                            }
-                            items.append(item)
-                        except Exception:
-                            continue
-            if not items and waifu_users_coll is not None:
-                try:
-                    cursor = waifu_users_coll.find({'user_id': uid_s}, {'_id': 0, 'id': 1, 'name': 1, 'title': 1, 'avatar': 1, 'image': 1})
-                    for d in cursor:
-                        items.append({
-                            "id": str(d.get('id') or ''),
-                            "name": d.get('name') or d.get('title') or 'Unknown',
-                            "rarity": d.get('rarity') or None,
-                            "avatar": _try_many_fields_for_avatar(d) or DEFAULT_AVATAR
-                        })
-                except Exception:
-                    pass
-            if not items and husband_users_coll is not None:
-                try:
-                    cursor = husband_users_coll.find({'user_id': uid_s}, {'_id': 0, 'id': 1, 'name': 1, 'title': 1, 'avatar': 1, 'image': 1})
-                    for d in cursor:
-                        items.append({
-                            "id": str(d.get('id') or ''),
-                            "name": d.get('name') or d.get('title') or 'Unknown',
-                            "rarity": d.get('rarity') or None,
-                            "avatar": _try_many_fields_for_avatar(d) or DEFAULT_AVATAR
-                        })
-                except Exception:
-                    pass
-        except Exception:
-            items = []
+        return jsonify({
+            "ok": True,
+            "items": items
+        })
 
-        return jsonify({"ok": True, "profile": profile, "items": items})
     except Exception as e:
-        traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        print("[MY_COLLECTION ERROR]", e)
+        return jsonify({
+            "ok": False,
+            "items": [],
+            "error": str(e)
+        }), 500
 
+
+@app.route('/api/history')
+def api_history():
+    uid = request.args.get('user_id')
+    try:
+        raw = r.lrange(f"user:{uid}:txs", 0, 50)
+        return jsonify({"ok": True, "items": [json.loads(x) for x in raw]})
+    except:
+        return jsonify({"ok": True, "items": []})
+
+
+@app.route('/api/qr_code')
+def api_qr_code():
+    uid = request.args.get('user_id')
+    qr = qrcode.QRCode(box_size=8, border=3)
+    qr.add_data(str(uid))
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    return jsonify({
+        "ok": True,
+        "image_b64": base64.b64encode(buf.getvalue()).decode()
+    })
+    
 @app.route('/api/top')
 def api_top():
     try:
