@@ -4,256 +4,189 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Keep Market</title>
-    <!-- Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- CSS & JS -->
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/js/i18n.js"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 
-    <!-- BACKGROUND -->
     <div class="bg-image"></div>
-
-    <!-- MAIN APP CONTAINER -->
     <div id="app">
-        
-        <!-- HEADER (Fixed) -->
+        <!-- HEADER -->
         <header class="glass-card" style="border-radius:0; border:none; border-bottom:1px solid var(--glass-border); padding:10px 16px; z-index:90; position:sticky; top:0; display:flex; justify-content:space-between; align-items:center;">
-            <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="toggleProfile()">
+            <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="navigateTo('profile')">
                 <img id="profile-avatar" src="" style="width:40px; height:40px; border-radius:50%; border:2px solid var(--accent);">
                 <div>
                     <h4 id="profile-name" style="margin:0; font-size:16px;"></h4>
-                    <small id="profile-id" style="opacity:0.6;"></small>
+                    <small>Traveler</small>
                 </div>
             </div>
             <div style="display:flex; align-items:center; gap:15px;">
                 <div style="background:rgba(0,0,0,0.4); padding:5px 12px; border-radius:20px; font-family:var(--font-accent); color:#ffd700;">
                     <i class="fa-solid fa-gem"></i> <span id="balance-display">0</span>
                 </div>
-                <i class="fa-solid fa-bell" onclick="openNotifications()" style="font-size:18px;"></i>
+                <i class="fa-solid fa-bell" onclick="openNotifications()" style="font-size:18px; cursor:pointer;"></i>
             </div>
         </header>
 
         <main>
-            <!-- HOME VIEW -->
+            <!-- HOME -->
             <section id="view-home" class="view-section active">
                 <div class="glass-card" style="background: linear-gradient(135deg, var(--primary), var(--accent));">
-                    <h2 style="margin:0;">Season 4</h2>
-                    <p>Welcome to the new era.</p>
-                    <button class="glass-btn" style="background:white; color:var(--primary);" onclick="navigateTo('market')">Explore Market</button>
+                    <h2>Welcome!</h2>
+                    <p>The best waifu & husband market.</p>
+                    <button class="glass-btn" style="background:white; color:var(--primary);" onclick="navigateTo('market')">Go to Market</button>
                 </div>
                 <div class="char-grid">
-                    <!-- Quick Actions -->
                     <div class="glass-card" onclick="navigateTo('market')" style="text-align:center; padding:20px;">
                         <i class="fa-solid fa-store" style="font-size:24px; color:var(--accent);"></i>
-                        <div style="margin-top:5px;" data-i18n="nav.market">Market</div>
+                        <div data-i18n="nav.market">Market</div>
                     </div>
                     <div class="glass-card" onclick="navigateTo('p2p')" style="text-align:center; padding:20px;">
                         <i class="fa-solid fa-users" style="font-size:24px; color:var(--accent);"></i>
-                        <div style="margin-top:5px;" data-i18n="nav.p2p">P2P</div>
+                        <div data-i18n="nav.p2p">P2P</div>
                     </div>
-                    <div class="glass-card" onclick="navigateTo('friends')" style="text-align:center; padding:20px;">
-                        <i class="fa-solid fa-user-group" style="font-size:24px; color:var(--accent);"></i>
-                        <div style="margin-top:5px;" data-i18n="nav.friends">Friends</div>
+                    <div class="glass-card" onclick="navigateTo('games')" style="text-align:center; padding:20px;">
+                        <i class="fa-solid fa-gamepad" style="font-size:24px; color:var(--accent);"></i>
+                        <div data-i18n="nav.games">Games</div>
                     </div>
                 </div>
             </section>
 
-            <!-- MARKET VIEW -->
+            <!-- MARKET -->
             <section id="view-market" class="view-section">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <h2 data-i18n="nav.market">Market</h2>
-                    <button class="glass-btn" onclick="toggleFilterModal()"><i class="fa-solid fa-filter"></i></button>
-                </div>
+                <h2 data-i18n="nav.market">Market</h2>
                 <div class="tabs">
-                    <div class="tab active" onclick="switchMarketTab('waifu')">Waifu</div>
-                    <div class="tab" onclick="switchMarketTab('husband')">Husband</div>
+                    <div class="tab active" onclick="state.marketTab='waifu'; renderMarket(); this.classList.add('active'); this.nextElementSibling.classList.remove('active');">Waifu</div>
+                    <div class="tab" onclick="state.marketTab='husband'; renderMarket(); this.classList.add('active'); this.previousElementSibling.classList.remove('active');">Husband</div>
                 </div>
-                <div id="market-list">
-                    <!-- Market Items Loaded Here -->
-                </div>
+                <div id="market-list"></div>
             </section>
 
-            <!-- P2P VIEW -->
+            <!-- P2P -->
             <section id="view-p2p" class="view-section">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <h2 data-i18n="p2p.trading">P2P Trading</h2>
-                    <button class="glass-btn primary-btn" onclick="openSellModal()" data-i18n="p2p.sell">Sell Character</button>
+                <div style="display:flex; justify-content:space-between;">
+                    <h2 data-i18n="nav.p2p">P2P Trading</h2>
+                    <button class="glass-btn primary-btn" data-i18n="p2p.sell">Sell Character</button>
                 </div>
-                <div id="p2p-list">
-                    <!-- P2P Items -->
-                </div>
+                <div id="p2p-list"></div>
             </section>
 
-            <!-- WALLET SEND VIEW -->
+            <!-- WALLET SEND -->
             <section id="view-send" class="view-section">
                 <h2 data-i18n="send.title">Send Charms</h2>
-                <div style="background:rgba(0,0,0,0.3); height:150px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-direction:column; cursor:pointer; margin-bottom:20px;" onclick="openScanner()">
-                    <i class="fa-solid fa-camera" style="font-size:32px; margin-bottom:10px;"></i>
-                    <span data-i18n="send.scan">Scan QR Code</span>
+                <div onclick="openScanner()" style="height:150px; background:rgba(0,0,0,0.3); border-radius:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;">
+                    <i class="fa-solid fa-camera" style="font-size:32px;"></i>
+                    <span style="margin-left:10px;" data-i18n="send.scan">Scan QR</span>
                 </div>
-                
-                <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
-                    <div style="height:1px; flex:1; background:rgba(255,255,255,0.2);"></div>
-                    <span style="font-size:12px; opacity:0.6;">OR</span>
-                    <div style="height:1px; flex:1; background:rgba(255,255,255,0.2);"></div>
-                </div>
-
-                <h3 data-i18n="send.manual">Manual Input</h3>
-                <input type="text" class="glass-input" id="send-to-id" placeholder="User ID / Username">
-                <input type="number" class="glass-input" id="send-amount" placeholder="Amount">
-                
-                <button class="glass-btn primary-btn" style="width:100%; padding:15px; border-radius:30px;" onclick="confirmSend()">
-                    Swipe to Send <i class="fa-solid fa-arrow-right"></i>
-                </button>
+                <input type="text" id="send-uid" class="glass-input" placeholder="User ID">
+                <input type="number" id="send-amt" class="glass-input" placeholder="Amount">
+                <button class="glass-btn primary-btn" onclick="sendCharms()" style="width:100%">Send</button>
             </section>
 
-            <!-- WALLET RECEIVE VIEW -->
+            <!-- WALLET RECEIVE -->
             <section id="view-receive" class="view-section">
                 <h2 data-i18n="receive.title">Receive Charms</h2>
-                <div id="receive-qr-container" style="display:flex; justify-content:center; margin:20px 0;">
-                    <!-- QR Generated Here -->
+                <div id="receive-qr" style="display:flex; justify-content:center; padding:20px;">
+                    <!-- QR Code Generated Here -->
                 </div>
-                <p style="text-align:center; opacity:0.7;" data-i18n="receive.desc">Scan to send me charms</p>
             </section>
 
-            <!-- HISTORY VIEW -->
+            <!-- HISTORY -->
             <section id="view-history" class="view-section">
                 <h2>History</h2>
                 <div id="history-list"></div>
             </section>
 
-            <!-- PROFILE / COLLECTION VIEW -->
+            <!-- PROFILE -->
             <section id="view-profile" class="view-section">
                 <div class="glass-card" style="text-align:center;">
+                    <i class="fa-solid fa-xmark" onclick="navigateTo('home')" style="position:absolute; top:10px; right:10px; cursor:pointer;"></i>
                     <img id="profile-avatar-lg" src="" style="width:100px; height:100px; border-radius:50%; border:3px solid var(--accent);">
                     <h2 id="profile-name-lg"></h2>
-                    <p id="profile-id-lg"></p>
-                    
-                    <div style="display:flex; justify-content:center; gap:20px; margin-top:20px;">
-                        <div class="glass-btn" onclick="navigateTo('collection')" data-i18n="profile.my_chars">My Characters</div>
-                    </div>
+                    <p>ID: <span id="profile-id-lg"></span></p>
+                    <button class="glass-btn" onclick="navigateTo('collection')" data-i18n="profile.my_chars">My Collection</button>
                 </div>
             </section>
 
-            <!-- COLLECTION VIEW -->
+            <!-- COLLECTION -->
             <section id="view-collection" class="view-section">
                 <div class="tabs">
-                    <div class="tab active" onclick="renderCollection('waifu')">Waifu</div>
-                    <div class="tab" onclick="renderCollection('husband')">Husband</div>
+                    <div class="tab active" onclick="renderCollection(); this.classList.add('active'); this.nextElementSibling.classList.remove('active');">Waifu</div>
+                    <div class="tab" onclick="renderCollection(); this.classList.add('active'); this.previousElementSibling.classList.remove('active');">Husband</div>
                 </div>
-                <div id="collection-grid" class="char-grid">
-                    <!-- Items -->
+                <div id="collection-grid" class="char-grid"></div>
+            </section>
+
+            <!-- FRIENDS -->
+            <section id="view-friends" class="view-section">
+                <h2 data-i18n="nav.friends">Friends</h2>
+                <div class="tabs">
+                    <div class="tab active">Add Friend</div>
+                    <div class="tab">Requests</div>
+                    <div class="tab">Chat</div>
+                </div>
+                <div id="friends-list"></div>
+            </section>
+
+            <!-- TOP -->
+            <section id="view-top" class="view-section">
+                <h2 data-i18n="nav.top">Leaderboard</h2>
+                <div class="tabs">
+                    <div class="tab active" onclick="renderTop();">Waifu</div>
+                    <div class="tab" onclick="renderTop();">Husband</div>
+                    <div class="tab" onclick="renderTop();">Charms</div>
+                </div>
+                <div id="top-list"></div>
+            </section>
+
+            <!-- GAMES -->
+            <section id="view-games" class="view-section">
+                <h2 data-i18n="nav.games">Mini Games</h2>
+                <div class="glass-card">
+                    <h3>Tap Race</h3>
+                    <p>Coming Soon...</p>
                 </div>
             </section>
-            
-            <!-- SETTINGS VIEW -->
+
+            <!-- SETTINGS -->
             <section id="view-settings" class="view-section">
                 <h2 data-i18n="nav.settings">Settings</h2>
                 <div class="glass-card">
-                    <div class="setting-row" style="display:flex; justify-content:space-between; margin-bottom:15px;">
-                        <span data-i18n="settings.lang">Language</span>
-                        <select onchange="setLanguage(this.value)" style="background:#000; color:#fff; border:none; padding:5px;">
-                            <option value="en">English</option>
-                            <option value="idn">Indonesia</option>
-                            <option value="hi">India</option>
-                            <option value="my">Myanmar</option>
-                            <option value="ar">Arabic</option>
-                        </select>
-                    </div>
-                    <div style="margin-bottom:15px;">
-                        <span data-i18n="settings.bgm">Background Music</span>
-                        <input type="file" accept="audio/*" onchange="handleBGM(this)">
-                    </div>
-                    <div>
-                        <span data-i18n="settings.theme">Upload Theme</span>
-                        <input type="file" accept="image/*" onchange="handleTheme(this)">
-                    </div>
+                    <label data-i18n="settings.lang">Language</label>
+                    <select onchange="setLanguage(this.value)" style="width:100%; padding:10px; border-radius:8px;">
+                        <option value="en">English</option>
+                        <option value="idn">Indonesia</option>
+                        <option value="hi">India</option>
+                        <option value="my">Myanmar</option>
+                        <option value="ar">Arabic</option>
+                    </select>
                 </div>
             </section>
-
         </main>
 
         <!-- BOTTOM NAV -->
         <nav class="bottom-bar">
-            <div class="nav-item" onclick="navigateTo('send')">
-                <i class="fa-solid fa-paper-plane"></i>
-                <span data-i18n="nav.send">Send</span>
-            </div>
-            <div class="nav-item" onclick="navigateTo('receive')">
-                <i class="fa-solid fa-qrcode"></i>
-                <span data-i18n="nav.receive">Receive</span>
-            </div>
-            <div class="nav-item active" onclick="navigateTo('home')">
-                <i class="fa-solid fa-house"></i>
-                <span data-i18n="nav.home">Home</span>
-            </div>
+            <div class="nav-item" onclick="navigateTo('send')" data-i18n="nav.send"><i class="fa-solid fa-paper-plane"></i><span>Send</span></div>
+            <div class="nav-item" onclick="navigateTo('receive')" data-i18n="nav.receive"><i class="fa-solid fa-qrcode"></i><span>Receive</span></div>
+            <div class="nav-item active" onclick="navigateTo('home')" data-i18n="nav.home"><i class="fa-solid fa-house"></i><span>Home</span></div>
         </nav>
     </div>
 
     <!-- MODALS -->
-
-    <!-- Profile Modal (Simulated as a view, but can be a modal) -->
-    <!-- The "My Collection" button navigates to a dedicated view for better UX as requested -->
-
-    <!-- P2P Sell Modal Step 1: Select Char -->
-    <div id="modal-sell-step1" class="modal-overlay" onclick="if(event.target === this) this.classList.remove('open')">
-        <div class="bottom-sheet">
-            <h3 style="margin-top:0;" data-i18n="modal.sell_title">Sell Character</h3>
-            <div class="tabs" style="margin-bottom:10px;">
-                <div class="tab active" onclick="filterSellColl('waifu')">Waifu</div>
-                <div class="tab" onclick="filterSellColl('husband')">Husband</div>
-            </div>
-            <div id="sell-char-grid" class="char-grid" style="max-height:300px; overflow-y:auto;">
-                <!-- User characters loaded here -->
-            </div>
-        </div>
-    </div>
-
-    <!-- P2P Sell Modal Step 2: Set Price -->
-    <div id="modal-sell-step2" class="modal-overlay" onclick="if(event.target === this) this.classList.remove('open')">
-        <div class="bottom-sheet">
-            <div style="text-align:center;">
-                <img id="sell-preview-img" src="" style="width:120px; border-radius:12px; margin-bottom:10px;">
-                <h3 id="sell-preview-name">Char Name</h3>
-            </div>
-            <label data-i18n="form.price">Price</label>
-            <input type="number" id="sell-price" class="glass-input" placeholder="Charms">
-            <label data-i18n="form.qty">Qty</label>
-            <input type="number" id="sell-qty" class="glass-input" value="1">
-            <label data-i18n="form.desc">Description</label>
-            <textarea id="sell-desc" class="glass-input" rows="3"></textarea>
-            
-            <button class="glass-btn primary-btn" style="width:100%" onclick="submitSell()">List Item</button>
-        </div>
-    </div>
-
-    <!-- Notification Modal -->
-    <div id="modal-notif" class="modal-overlay" onclick="if(event.target === this) this.classList.remove('open')">
-        <div class="bottom-sheet">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h3>Notifications</h3>
-                <i class="fa-solid fa-xmark" style="cursor:pointer; font-size:20px;" onclick="document.getElementById('modal-notif').classList.remove('open')"></i>
-            </div>
-            <div id="notif-list" style="display:flex; flex-direction:column; gap:10px;">
-                <!-- Items -->
-                <div class="glass-card" style="padding:10px;">
-                    <strong>New Listing!</strong> UserX just put <i>Sakura Maid</i> on sale.
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- CAMERA VIEW (Overlay) -->
     <div id="camera-view">
-        <video id="camera-video" autoplay playsinline></video>
+        <video id="camera-video" autoplay playsinline style="width:100%; height:100%; object-fit:cover;"></video>
         <div class="scan-overlay"></div>
-        <button class="glass-btn" onclick="closeScanner()" style="position:absolute; top:20px; right:20px; z-index:501;">Cancel</button>
-        <button class="glass-btn primary-btn" onclick="scanQR()" style="position:absolute; bottom:40px; left:50%; transform:translateX(-50%);">Capture / Scan</button>
+        <button class="glass-btn" onclick="closeScanner()" style="position:absolute; top:20px; right:20px; z-index:501;">Close</button>
+    </div>
+    
+    <div id="modal-notif" class="modal-overlay" onclick="this.classList.remove('open')">
+        <div class="bottom-sheet">
+            <h3 data-i18n="notifs.title">Notifications</h3>
+            <div id="notif-list"></div>
+        </div>
     </div>
 
     <script src="/static/js/app.js"></script>
