@@ -7,7 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="/static/js/i18n.js"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -15,12 +14,12 @@
     <div class="bg-image"></div>
     <div id="app">
         <!-- HEADER -->
-        <header class="glass-card" style="border-radius:0; border:none; border-bottom:1px solid var(--glass-border); padding:10px 16px; z-index:90; position:sticky; top:0; display:flex; justify-content:space-between; align-items:center;">
+        <header>
             <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="navigateTo('profile')">
                 <img id="profile-avatar" src="" style="width:40px; height:40px; border-radius:50%; border:2px solid var(--accent);">
                 <div>
                     <h4 id="profile-name" style="margin:0; font-size:16px;"></h4>
-                    <small>Traveler</small>
+                    <small style="opacity:0.7">Traveler</small>
                 </div>
             </div>
             <div style="display:flex; align-items:center; gap:15px;">
@@ -32,9 +31,9 @@
         </header>
 
         <main>
-            <!-- HOME -->
+            <!-- HOME VIEW -->
             <section id="view-home" class="view-section active">
-                <div class="glass-card" style="background: linear-gradient(135deg, var(--primary), var(--accent));">
+                <div class="glass-card" style="background: linear-gradient(135deg, var(--primary), var(--accent)); text-align:center;">
                     <h2>Welcome!</h2>
                     <p>The best waifu & husband market.</p>
                     <button class="glass-btn" style="background:white; color:var(--primary);" onclick="navigateTo('market')">Go to Market</button>
@@ -42,126 +41,129 @@
                 <div class="char-grid">
                     <div class="glass-card" onclick="navigateTo('market')" style="text-align:center; padding:20px;">
                         <i class="fa-solid fa-store" style="font-size:24px; color:var(--accent);"></i>
-                        <div data-i18n="nav.market">Market</div>
+                        <div>Market</div>
                     </div>
                     <div class="glass-card" onclick="navigateTo('p2p')" style="text-align:center; padding:20px;">
                         <i class="fa-solid fa-users" style="font-size:24px; color:var(--accent);"></i>
-                        <div data-i18n="nav.p2p">P2P</div>
+                        <div>P2P</div>
                     </div>
                     <div class="glass-card" onclick="navigateTo('games')" style="text-align:center; padding:20px;">
                         <i class="fa-solid fa-gamepad" style="font-size:24px; color:var(--accent);"></i>
-                        <div data-i18n="nav.games">Games</div>
+                        <div>Games</div>
                     </div>
                 </div>
             </section>
 
-            <!-- MARKET -->
+            <!-- MARKET VIEW -->
             <section id="view-market" class="view-section">
-                <h2 data-i18n="nav.market">Market</h2>
+                <h2>Market</h2>
                 <div class="tabs">
-                    <div class="tab active" onclick="state.marketTab='waifu'; renderMarket(); this.classList.add('active'); this.nextElementSibling.classList.remove('active');">Waifu</div>
-                    <div class="tab" onclick="state.marketTab='husband'; renderMarket(); this.classList.add('active'); this.previousElementSibling.classList.remove('active');">Husband</div>
+                    <div class="tab active" onclick="switchMarketTab('waifu')">Waifu</div>
+                    <div class="tab" onclick="switchMarketTab('husband')">Husband</div>
                 </div>
                 <div id="market-list"></div>
             </section>
 
-            <!-- P2P -->
+            <!-- P2P VIEW -->
             <section id="view-p2p" class="view-section">
                 <div style="display:flex; justify-content:space-between;">
-                    <h2 data-i18n="nav.p2p">P2P Trading</h2>
-                    <button class="glass-btn primary-btn" data-i18n="p2p.sell">Sell Character</button>
+                    <h2>P2P Trading</h2>
+                    <button class="glass-btn primary-btn" onclick="openSellModal()">Sell Character</button>
                 </div>
                 <div id="p2p-list"></div>
             </section>
 
-            <!-- WALLET SEND -->
+            <!-- SEND VIEW -->
             <section id="view-send" class="view-section">
-                <h2 data-i18n="send.title">Send Charms</h2>
+                <h2>Send Charms</h2>
                 <div onclick="openScanner()" style="height:150px; background:rgba(0,0,0,0.3); border-radius:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;">
                     <i class="fa-solid fa-camera" style="font-size:32px;"></i>
-                    <span style="margin-left:10px;" data-i18n="send.scan">Scan QR</span>
+                    <span style="margin-left:10px;">Scan QR</span>
                 </div>
-                <input type="text" id="send-uid" class="glass-input" placeholder="User ID">
+                <input type="text" id="send-uid" class="glass-input" placeholder="User ID / Username">
                 <input type="number" id="send-amt" class="glass-input" placeholder="Amount">
                 <button class="glass-btn primary-btn" onclick="sendCharms()" style="width:100%">Send</button>
             </section>
 
-            <!-- WALLET RECEIVE -->
+            <!-- RECEIVE VIEW -->
             <section id="view-receive" class="view-section">
-                <h2 data-i18n="receive.title">Receive Charms</h2>
+                <h2>Receive Charms</h2>
                 <div id="receive-qr" style="display:flex; justify-content:center; padding:20px;">
-                    <!-- QR Code Generated Here -->
+                    <!-- QR Code -->
                 </div>
             </section>
 
-            <!-- HISTORY -->
+            <!-- HISTORY VIEW -->
             <section id="view-history" class="view-section">
                 <h2>History</h2>
                 <div id="history-list"></div>
             </section>
 
-            <!-- PROFILE -->
+            <!-- PROFILE VIEW -->
             <section id="view-profile" class="view-section">
                 <div class="glass-card" style="text-align:center;">
                     <i class="fa-solid fa-xmark" onclick="navigateTo('home')" style="position:absolute; top:10px; right:10px; cursor:pointer;"></i>
                     <img id="profile-avatar-lg" src="" style="width:100px; height:100px; border-radius:50%; border:3px solid var(--accent);">
                     <h2 id="profile-name-lg"></h2>
                     <p>ID: <span id="profile-id-lg"></span></p>
-                    <button class="glass-btn" onclick="navigateTo('collection')" data-i18n="profile.my_chars">My Collection</button>
+                    <button class="glass-btn" onclick="navigateTo('collection')">My Collection</button>
                 </div>
             </section>
 
-            <!-- COLLECTION -->
+            <!-- COLLECTION VIEW -->
             <section id="view-collection" class="view-section">
                 <div class="tabs">
-                    <div class="tab active" onclick="renderCollection(); this.classList.add('active'); this.nextElementSibling.classList.remove('active');">Waifu</div>
-                    <div class="tab" onclick="renderCollection(); this.classList.add('active'); this.previousElementSibling.classList.remove('active');">Husband</div>
+                    <div class="tab active" onclick="renderCollection('waifu')">Waifu</div>
+                    <div class="tab" onclick="renderCollection('husband')">Husband</div>
                 </div>
                 <div id="collection-grid" class="char-grid"></div>
             </section>
 
-            <!-- FRIENDS -->
+            <!-- FRIENDS VIEW -->
             <section id="view-friends" class="view-section">
-                <h2 data-i18n="nav.friends">Friends</h2>
+                <h2>Friends</h2>
                 <div class="tabs">
                     <div class="tab active">Add Friend</div>
                     <div class="tab">Requests</div>
                     <div class="tab">Chat</div>
                 </div>
-                <div id="friends-list"></div>
+                <div id="friends-list">
+                    <div class="glass-card">Friend list loaded from Redis...</div>
+                </div>
             </section>
 
-            <!-- TOP -->
+            <!-- TOP VIEW -->
             <section id="view-top" class="view-section">
-                <h2 data-i18n="nav.top">Leaderboard</h2>
+                <h2>Top / Leaderboard</h2>
                 <div class="tabs">
-                    <div class="tab active" onclick="renderTop();">Waifu</div>
-                    <div class="tab" onclick="renderTop();">Husband</div>
-                    <div class="tab" onclick="renderTop();">Charms</div>
+                    <div class="tab active" onclick="renderTop('waifu')">Waifu</div>
+                    <div class="tab" onclick="renderTop('husband')">Husband</div>
+                    <div class="tab" onclick="renderTop('charms')">Charms</div>
                 </div>
                 <div id="top-list"></div>
             </section>
 
-            <!-- GAMES -->
+            <!-- GAMES VIEW -->
             <section id="view-games" class="view-section">
-                <h2 data-i18n="nav.games">Mini Games</h2>
+                <h2>Games</h2>
                 <div class="glass-card">
                     <h3>Tap Race</h3>
-                    <p>Coming Soon...</p>
+                    <p>Tap as fast as you can!</p>
+                    <button class="glass-btn primary-btn">Play Now</button>
                 </div>
             </section>
 
-            <!-- SETTINGS -->
+            <!-- SETTINGS VIEW -->
             <section id="view-settings" class="view-section">
-                <h2 data-i18n="nav.settings">Settings</h2>
+                <h2>Settings</h2>
                 <div class="glass-card">
-                    <label data-i18n="settings.lang">Language</label>
-                    <select onchange="setLanguage(this.value)" style="width:100%; padding:10px; border-radius:8px;">
-                        <option value="en">English</option>
-                        <option value="idn">Indonesia</option>
-                        <option value="hi">India</option>
-                        <option value="my">Myanmar</option>
-                        <option value="ar">Arabic</option>
+                    <label>Language</label>
+                    <select style="width:100%; padding:10px; border-radius:8px;">
+                        <option>English</option>
+                        <option>Indonesia</option>
+                        <option>India</option>
+                        <option>Myanmar</option>
+                        <option>Arabic</option>
                     </select>
                 </div>
             </section>
@@ -169,26 +171,224 @@
 
         <!-- BOTTOM NAV -->
         <nav class="bottom-bar">
-            <div class="nav-item" onclick="navigateTo('send')" data-i18n="nav.send"><i class="fa-solid fa-paper-plane"></i><span>Send</span></div>
-            <div class="nav-item" onclick="navigateTo('receive')" data-i18n="nav.receive"><i class="fa-solid fa-qrcode"></i><span>Receive</span></div>
-            <div class="nav-item active" onclick="navigateTo('home')" data-i18n="nav.home"><i class="fa-solid fa-house"></i><span>Home</span></div>
+            <div class="nav-item" onclick="navigateTo('send')"><i class="fa-solid fa-paper-plane"></i><span>Send</span></div>
+            <div class="nav-item" onclick="navigateTo('receive')"><i class="fa-solid fa-qrcode"></i><span>Receive</span></div>
+            <div class="nav-item active" onclick="navigateTo('home')"><i class="fa-solid fa-house"></i><span>Home</span></div>
         </nav>
     </div>
 
     <!-- MODALS -->
     <div id="camera-view">
         <video id="camera-video" autoplay playsinline style="width:100%; height:100%; object-fit:cover;"></video>
-        <div class="scan-overlay"></div>
         <button class="glass-btn" onclick="closeScanner()" style="position:absolute; top:20px; right:20px; z-index:501;">Close</button>
     </div>
-    
-    <div id="modal-notif" class="modal-overlay" onclick="this.classList.remove('open')">
+
+    <div id="modal-sell" class="modal-overlay" onclick="this.classList.remove('open')">
         <div class="bottom-sheet">
-            <h3 data-i18n="notifs.title">Notifications</h3>
-            <div id="notif-list"></div>
+            <h3>Sell Your Character</h3>
+            <div class="tabs">
+                <div class="tab active">Waifu</div>
+                <div class="tab">Husband</div>
+            </div>
+            <div class="char-grid" style="max-height:300px; overflow-y:auto; margin-bottom:10px;">
+                <!-- Character select mock -->
+                <div class="char-card-small" onclick="alert('Select char logic here')"><img src="https://picsum.photos/100/150" class="char-img"></div>
+            </div>
+            <input type="number" class="glass-input" placeholder="Price">
+            <button class="glass-btn primary-btn" style="width:100%">List Item</button>
         </div>
     </div>
 
-    <script src="/static/js/app.js"></script>
+    <div id="modal-notif" class="modal-overlay" onclick="this.classList.remove('open')">
+        <div class="bottom-sheet">
+            <h3>Notifications</h3>
+            <div id="notif-list">
+                <div class="glass-card">Welcome to Keep Market!</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const state = { user: { id: null, name: 'Traveler', avatar: '', balance: 0 } };
+
+        window.addEventListener('load', async () => {
+            const tg = window.Telegram.WebApp;
+            tg.ready(); tg.expand();
+
+            state.user.id = tg.initDataUnsafe.user?.id || "123456";
+            state.user.name = tg.initDataUnsafe.user?.first_name || "Traveler";
+            state.user.avatar = tg.initDataUnsafe.user?.photo_url || "https://picsum.photos/seed/user/200/200";
+
+            document.getElementById('profile-name').innerText = state.user.name;
+            document.getElementById('profile-avatar').src = state.user.avatar;
+
+            // Fetch User Info & Balance
+            const res = await fetch(`/api/user_info?user_id=${state.user.id}`);
+            if(res.ok) {
+                const data = await res.json();
+                state.user.balance = data.balance;
+                document.getElementById('balance-display').innerText = state.user.balance;
+            }
+        });
+
+        function navigateTo(viewId) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            const target = document.getElementById(`view-${viewId}`);
+            if(target) target.classList.add('active');
+            
+            // Load Data
+            if(viewId === 'market') renderMarket();
+            if(viewId === 'p2p') renderP2P();
+            if(viewId === 'receive') renderQR();
+            if(viewId === 'history') renderHistory();
+            if(viewId === 'collection') renderCollection('waifu');
+            if(viewId === 'top') renderTop('waifu');
+            if(viewId === 'profile') {
+                document.getElementById('profile-name-lg').innerText = state.user.name;
+                document.getElementById('profile-avatar-lg').src = state.user.avatar;
+                document.getElementById('profile-id-lg').innerText = state.user.id;
+            }
+
+            // Nav Bar State
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            const btn = document.querySelector(`.nav-item[onclick="navigateTo('${viewId}')"]`);
+            if(btn) btn.classList.add('active');
+        }
+
+        // --- API CALLS ---
+        async function renderMarket() {
+            const type = document.querySelector('#view-market .tab.active').innerText.toLowerCase();
+            const res = await fetch(`/api/market?type=${type}`);
+            const data = await res.json();
+            const list = document.getElementById('market-list');
+            list.innerHTML = '';
+            if(data.items) {
+                data.items.forEach(item => {
+                    list.innerHTML += `
+                    <div class="glass-card">
+                        <div style="display:flex; gap:12px;">
+                            <img src="${item.image}" style="width:80px; height:100px; border-radius:8px; object-fit:cover;">
+                            <div style="flex:1;">
+                                <h3>${item.name}</h3>
+                                <div style="color:#ffd700;">${item.rarity}</div>
+                                <div style="margin-top:8px; display:flex; justify-content:space-between;">
+                                    <span style="font-weight:bold;">${item.price} <i class="fa-solid fa-gem"></i></span>
+                                    <button class="glass-btn primary-btn" onclick="buyMarket('${item._id}', ${item.price})">Buy</button>
+                                </div>
+                                <div style="font-size:10px; opacity:0.6;">Stock: ${item.stock}</div>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+            }
+        }
+
+        async function buyMarket(id, price) {
+            if(confirm("Buy this item?")) {
+                const res = await fetch('/api/buy_market', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ user_id: state.user.id, item_id: id })
+                });
+                const data = await res.json();
+                if(data.ok) {
+                    alert("Success!");
+                    location.reload();
+                } else { alert(data.error); }
+            }
+        }
+
+        async function renderP2P() {
+            const res = await fetch('/api/p2p_listings');
+            const data = await res.json();
+            const list = document.getElementById('p2p-list');
+            list.innerHTML = '';
+            if(data.items) {
+                data.items.forEach(item => {
+                    list.innerHTML += `
+                    <div class="glass-card">
+                        <div style="display:flex; gap:12px;">
+                            <img src="${item.char_data.image}" style="width:80px; height:100px; border-radius:8px; object-fit:cover;">
+                            <div style="flex:1;">
+                                <div style="font-size:10px; color:var(--primary);">Seller: ${item.seller_name}</div>
+                                <h3>${item.char_data.name}</h3>
+                                <div style="font-weight:bold;">${item.price} <i class="fa-solid fa-gem"></i></div>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+            }
+        }
+
+        async function renderTop(type) {
+            const res = await fetch(`/api/top?type=${type}`);
+            const data = await res.json();
+            const list = document.getElementById('top-list');
+            list.innerHTML = '';
+            if(data.items) {
+                data.items.forEach((item, idx) => {
+                    list.innerHTML += `
+                    <div class="glass-card" style="display:flex; justify-content:space-between; padding:10px;">
+                        <div style="display:flex; gap:10px;"><span style="width:20px;">${idx+1}</span> <span>${item.name}</span></div>
+                        <span style="color:#ffd700;">${item.count || item.score}</span>
+                    </div>`;
+                });
+            }
+        }
+
+        async function renderHistory() {
+            const res = await fetch(`/api/history?user_id=${state.user.id}`);
+            const data = await res.json();
+            const list = document.getElementById('history-list');
+            list.innerHTML = '';
+            if(data.items) {
+                data.items.forEach(tx => {
+                    list.innerHTML += `
+                    <div class="glass-card">
+                        <div>${tx.title}</div>
+                        <small>${tx.amount} Charms</small>
+                    </div>`;
+                });
+            }
+        }
+
+        async function renderCollection(type) {
+            const res = await fetch(`/api/my_collection?user_id=${state.user.id}&type=${type}`);
+            const data = await res.json();
+            const grid = document.getElementById('collection-grid');
+            grid.innerHTML = '';
+            if(data.items) {
+                data.items.forEach(char => {
+                    grid.innerHTML += `<div class="char-card-small"><img src="${char.image}" class="char-img"></div>`;
+                });
+            }
+        }
+
+        async function renderQR() {
+            const res = await fetch(`/api/qr_code?user_id=${state.user.id}`);
+            const data = await res.json();
+            if(data.ok) {
+                document.getElementById('receive-qr').innerHTML = `<img src="data:image/png;base64,${data.image_b64}" style="border-radius:12px;">`;
+            }
+        }
+
+        // --- ACTIONS ---
+        function switchMarketTab(type) {
+            document.querySelectorAll('#view-market .tab').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+            renderMarket();
+        }
+
+        function openScanner() { document.getElementById('camera-view').style.display = 'flex'; }
+        function closeScanner() { document.getElementById('camera-view').style.display = 'none'; }
+        function openSellModal() { document.getElementById('modal-sell').classList.add('open'); }
+        function openNotifications() { document.getElementById('modal-notif').classList.add('open'); }
+
+        async function sendCharms() {
+            const uid = document.getElementById('send-uid').value;
+            const amt = document.getElementById('send-amt').value;
+            if(!uid || !amt) return alert("Fill all fields");
+            alert("Sending Logic (Mock): " + amt + " to " + uid);
+        }
+    </script>
 </body>
 </html>
