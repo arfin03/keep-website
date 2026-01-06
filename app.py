@@ -35,8 +35,8 @@ REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redi
 REDIS_PORT = int(os.getenv('REDIS_PORT', 13380))
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
 
-DEFAULT_AVATAR = 'https://picsum.photos/200'
-DEFAULT_NAME = 'Traveler'
+DEFAULT_AVATAR = os.getenv('DEFAULT_AVATAR', 'https://picsum.photos/200')
+DEFAULT_NAME = os.getenv('DEFAULT_NAME', 'Traveler')
 
 # ================ APP ================
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -69,8 +69,8 @@ def safe_redis(host, port, password):
         return None
 
 market_client = safe_mongo(MARKET_DB_URL)
-waifu_client = safe_mongo(MONGO_URL_WAIFU)
-husband_client = safe_mongo(MONGO_URL_HUSBAND)
+waifu_client = safe_mongo(MONGO_URL_WAIFU) or market_client
+husband_client = safe_mongo(MONGO_URL_HUSBAND) or market_client
 r = safe_redis(REDIS_HOST, REDIS_PORT, REDIS_PASSWORD)
 
 def get_collection(client, dbname, collname):
@@ -82,14 +82,27 @@ def get_collection(client, dbname, collname):
         return None
 
 # collections used
-waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_lmaoooo')
-husband_users_coll = get_collection(husband_client, 'Character_catcher', 'user_collection_lmaoooo')
+# keep backward tolerant names: original repo used user_collection_lmaoooo for character coll,
+# but miniapps profiles are in user_collection_lmoooo (per user's message) — we will attempt both.
+waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_lmaoooo') or get_collection(waifu_client, 'Character_catcher', 'user_collection_waifu')
+husband_users_coll = get_collection(husband_client, 'Character_catcher', 'user_collection_lmaoooo') or get_collection(husband_client, 'Character_catcher', 'user_collection_husband')
+
 registered_users = None
+global_user_profiles_coll = None  # this is where miniapps login profiles should live (user_collection_lmoooo)
 if market_client is not None:
     try:
         registered_users = market_client['Character_catcher']['registered_users']
     except Exception:
         registered_users = None
+    try:
+        # This is the collection name you asked to prefer for miniapps: user_collection_lmoooo
+        global_user_profiles_coll = market_client['Character_catcher']['user_collection_lmoooo']
+    except Exception:
+        # fallback: try common alternative names
+        try:
+            global_user_profiles_coll = market_client['Character_catcher']['user_collection_lmaoooo']
+        except Exception:
+            global_user_profiles_coll = None
 
 # ================ HELPERS ================
 def serialize_mongo(obj):
@@ -163,39 +176,78 @@ def build_top_from_users_coll(users_coll, limit=100):
     except Exception:
         return []
 
+def _try_many_fields_for_avatar(doc):
+    if not isinstance(doc, dict):
+        return None
+    # a list of likely avatar/photo fields
+    avatar = doc.get('photo_url') or doc.get('avatar') or doc.get('avatar_url') or doc.get('picture') or doc.get('profile', {}).get('avatar') if isinstance(doc.get('profile'), dict) else None
+    # sometimes nested in 'profile' as dict
+    if not avatar:
+        profile = doc.get('profile') or doc.get('profile_info') or None
+        if isinstance(profile, dict):
+            avatar = profile.get('avatar') or profile.get('photo') or profile.get('picture')
+    return avatar
+
 def fetch_profile_fallback(uid, users_coll=None):
     """
     Return a dict with keys: name, username, avatar.
     Priority:
       1) registered_users collection (photo_url, firstname, username)
-      2) provided users_coll (waifu/husband user collection) fields (first_name, firstname, username)
-      3) defaults
+      2) global_user_profiles_coll (miniapps) - user_collection_lmoooo
+      3) provided users_coll (waifu/husband user collection) fields (first_name, firstname, username, avatar variants)
+      4) defaults
     """
-    uid_str = str(uid)
-    # try registered_users first
-    if registered_users is not None:
-        try:
-            doc = registered_users.find_one({'user_id': uid_str})
-            if doc:
-                name = doc.get('firstname') or doc.get('first_name') or doc.get('name') or DEFAULT_NAME
-                username = doc.get('username') or None
-                avatar = doc.get('photo_url') or None
-                return {'name': name, 'username': username, 'avatar': avatar}
-        except Exception:
-            pass
-    # try users_coll if provided
-    if users_coll is not None:
-        try:
-            # user docs in waifu/husband collections often use 'id' for user id
-            doc = users_coll.find_one({'id': uid_str}) or users_coll.find_one({'user_id': uid_str}) or users_coll.find_one({'id': int(uid_str)}) if uid_str.isdigit() else None
-            if doc:
-                name = doc.get('first_name') or doc.get('firstname') or doc.get('name') or DEFAULT_NAME
-                username = doc.get('username') or None
-                # check some possible avatar fields if stored in that collection
-                avatar = doc.get('photo_url') or doc.get('avatar') or doc.get('picture') or None
-                return {'name': name, 'username': username, 'avatar': avatar}
-        except Exception:
-            pass
+    try:
+        if uid is None:
+            return {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
+        uid_str = str(uid)
+
+        # 1) registered_users
+        if registered_users is not None:
+            try:
+                doc = registered_users.find_one({'user_id': uid_str}) or registered_users.find_one({'id': uid_str})
+                if doc is None and uid_str.isdigit():
+                    doc = registered_users.find_one({'id': int(uid_str)})
+                if doc:
+                    name = doc.get('firstname') or doc.get('first_name') or doc.get('name') or DEFAULT_NAME
+                    username = doc.get('username') or doc.get('user_name') or None
+                    avatar = _try_many_fields_for_avatar(doc) or None
+                    return {'name': name, 'username': username, 'avatar': avatar}
+            except Exception:
+                pass
+
+        # 2) global miniapps user profile collection (user_collection_lmoooo)
+        if global_user_profiles_coll is not None:
+            try:
+                doc = global_user_profiles_coll.find_one({'user_id': uid_str}) or global_user_profiles_coll.find_one({'id': uid_str})
+                if doc is None and uid_str.isdigit():
+                    doc = global_user_profiles_coll.find_one({'id': int(uid_str)})
+                if doc:
+                    name = doc.get('firstname') or doc.get('first_name') or doc.get('name') or doc.get('displayName') or DEFAULT_NAME
+                    username = doc.get('username') or doc.get('user_name') or doc.get('handle') or None
+                    avatar = _try_many_fields_for_avatar(doc) or None
+                    return {'name': name, 'username': username, 'avatar': avatar}
+            except Exception:
+                pass
+
+        # 3) collection-specific user doc (waifu/husband)
+        if users_coll is not None:
+            try:
+                # try several id variants
+                doc = users_coll.find_one({'user_id': uid_str}) or users_coll.find_one({'id': uid_str})
+                if doc is None and uid_str.isdigit():
+                    doc = users_coll.find_one({'id': int(uid_str)})
+                if doc:
+                    name = doc.get('first_name') or doc.get('firstname') or doc.get('name') or DEFAULT_NAME
+                    username = doc.get('username') or doc.get('user_name') or None
+                    avatar = _try_many_fields_for_avatar(doc) or None
+                    return {'name': name, 'username': username, 'avatar': avatar}
+            except Exception:
+                pass
+
+    except Exception:
+        pass
+
     # fallback default
     return {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
 
@@ -230,7 +282,8 @@ def api_my_collection():
     try:
         if users_coll is None:
             return jsonify({"ok": True, "items": []})
-        user_doc = users_coll.find_one({'id': str(uid)}) or users_coll.find_one({'id': int(uid)})
+        # tolerant find: try string id then int
+        user_doc = users_coll.find_one({'id': str(uid)}) or users_coll.find_one({'id': int(uid)}) if (uid and uid.isdigit()) else users_coll.find_one({'id': str(uid)})
         if not user_doc:
             return jsonify({"ok": True, "items": []})
         items = user_doc.get('characters') or user_doc.get('waifu') or user_doc.get('husband') or user_doc.get('char') or []
@@ -245,7 +298,7 @@ def api_top():
     GET /api/top?type=waifu|husband&limit=50
     - tries Redis type-specific leaderboard first (leaderboard:charms:waifu)
     - fallback to global charms set
-    - final fallback: aggregate from Mongo collection (count characters) like bot's logic
+    - final fallback: aggregate from Mongo collection (count characters)
     """
     try:
         limit = int(request.args.get('limit', 100))
@@ -307,20 +360,43 @@ def api_top():
                     except Exception:
                         raw = []
 
-        # build items with profile lookup in registered_users if present (or fallback to users_coll)
+        # build items with profile lookup in the priority:
+        # registered_users -> global_user_profiles_coll -> users_coll -> defaults
         items = []
         rank = 1
         for idx, (member, score) in enumerate(raw):
             uid = str(member)
-            # prefer registered_users, else fallback to users_coll, else defaults
-            profile = fetch_profile_fallback(uid, users_coll=users_coll)
+            profile = {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
+            # try registered_users and global profiles via fetch_profile_fallback (it checks both)
+            try:
+                profile = fetch_profile_fallback(uid, users_coll=users_coll) or profile
+            except Exception:
+                pass
+
+            # If still no avatar, make one more targeted attempt into global_user_profiles_coll
+            avatar = profile.get('avatar') or None
+            if not avatar and global_user_profiles_coll is not None:
+                try:
+                    alt = global_user_profiles_coll.find_one({'user_id': uid}) or global_user_profiles_coll.find_one({'id': uid})
+                    if alt is None and uid.isdigit():
+                        alt = global_user_profiles_coll.find_one({'id': int(uid)})
+                    if alt:
+                        avatar = _try_many_fields_for_avatar(alt) or avatar
+                        # if name/username missing, adopt from alt
+                        if not profile.get('name') or profile.get('name') == DEFAULT_NAME:
+                            profile['name'] = alt.get('firstname') or alt.get('first_name') or alt.get('displayName') or profile.get('name')
+                        if not profile.get('username'):
+                            profile['username'] = alt.get('username') or alt.get('handle') or profile.get('username')
+                except Exception:
+                    pass
+
+            if not avatar:
+                # final fallback
+                avatar = DEFAULT_AVATAR
+
             name = profile.get('name') or DEFAULT_NAME
             username = profile.get('username') or None
-            avatar = profile.get('avatar') or None
-            if not avatar:
-                # if user hasn't logged in miniapp, avatar remains default
-                avatar = DEFAULT_AVATAR
-            # expose fields compatible with frontend
+
             items.append({
                 'rank': rank,
                 'user_id': uid,
