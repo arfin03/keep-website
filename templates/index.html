@@ -25,14 +25,14 @@
                 <div style="background:rgba(0,0,0,0.4); padding:5px 12px; border-radius:20px; font-family:var(--font-accent); color:#ffd700;">
                     <i class="fa-solid fa-gem"></i> <span id="balance-display">0</span>
                 </div>
-                <i class="fa-solid fa-bell" onclick="alert('Notifications Logic')" style="font-size:18px; cursor:pointer;"></i>
+                <i class="fa-solid fa-bell" onclick="openNotifications()" style="font-size:18px; cursor:pointer;"></i>
             </div>
         </header>
 
         <main>
             <!-- HOME VIEW -->
             <section id="view-home" class="view-section active">
-                <!-- 1. BANNER SLIDER (Restored) -->
+                <!-- BANNER SLIDER -->
                 <div class="banner-container">
                     <div class="banner-scroller">
                         <div class="banner-item" style="background: linear-gradient(to right, rgba(108, 92, 231, 0.8), transparent), url('https://picsum.photos/seed/banner1/600/300'); background-size: cover;">
@@ -49,17 +49,10 @@
                                 <p>50% OFF all items</p>
                             </div>
                         </div>
-                        <div class="banner-item" style="background: linear-gradient(to right, rgba(46, 204, 113, 0.8), transparent), url('https://picsum.photos/seed/banner3/600/300'); background-size: cover;">
-                            <div class="banner-overlay"></div>
-                            <div class="banner-content">
-                                <h2>New Minigames</h2>
-                                <p>Play & Win Charms</p>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
-                <!-- 2. DAILY REWARD (Restored) -->
+                <!-- DAILY REWARD -->
                 <div class="glass-card daily-claim">
                     <div>
                         <h3 style="margin:0; font-family:var(--font-accent);">Daily Reward</h3>
@@ -68,7 +61,7 @@
                     <button class="glass-btn" onclick="alert('Watch Ad Logic')"><i class="fa-solid fa-play"></i> Watch Ad</button>
                 </div>
 
-                <!-- 3. FEATURE GRID (All Buttons Restored) -->
+                <!-- FEATURE GRID -->
                 <div class="char-grid">
                     <div class="feature-item" onclick="navigateTo('market')">
                         <div class="feature-icon"><i class="fa-solid fa-store"></i></div>
@@ -78,14 +71,6 @@
                         <div class="feature-icon"><i class="fa-solid fa-users"></i></div>
                         <span class="feature-label">P2P</span>
                     </div>
-                    <div class="feature-item" onclick="navigateTo('shop')">
-                        <div class="feature-icon"><i class="fa-solid fa-bag-shopping"></i></div>
-                        <span class="feature-label">Shop</span>
-                    </div>
-                    <div class="feature-item" onclick="navigateTo('events')">
-                        <div class="feature-icon"><i class="fa-solid fa-calendar-day"></i></div>
-                        <span class="feature-label">Events</span>
-                    </div>
                     <div class="feature-item" onclick="navigateTo('friends')">
                         <div class="feature-icon"><i class="fa-solid fa-user-group"></i></div>
                         <span class="feature-label">Friends</span>
@@ -94,18 +79,18 @@
                         <div class="feature-icon"><i class="fa-solid fa-trophy"></i></div>
                         <span class="feature-label">Top</span>
                     </div>
-                    <div class="feature-item" onclick="navigateTo('settings')">
-                        <div class="feature-icon"><i class="fa-solid fa-gear"></i></div>
-                        <span class="feature-label">Settings</span>
-                    </div>
                     <div class="feature-item" onclick="navigateTo('games')">
                         <div class="feature-icon"><i class="fa-solid fa-gamepad"></i></div>
                         <span class="feature-label">Games</span>
                     </div>
+                    <div class="feature-item" onclick="navigateTo('settings')">
+                        <div class="feature-icon"><i class="fa-solid fa-gear"></i></div>
+                        <span class="feature-label">Settings</span>
+                    </div>
                 </div>
             </section>
 
-            <!-- MARKET -->
+            <!-- MARKET VIEW -->
             <section id="view-market" class="view-section">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <h2>Market</h2>
@@ -118,7 +103,7 @@
                 <div id="market-list"></div>
             </section>
 
-            <!-- P2P -->
+            <!-- P2P VIEW -->
             <section id="view-p2p" class="view-section">
                 <div style="display:flex; justify-content:space-between;">
                     <h2>P2P Trading</h2>
@@ -127,44 +112,47 @@
                 <div id="p2p-list"></div>
             </section>
 
-            <!-- WALLET SEND -->
+            <!-- SEND VIEW -->
             <section id="view-send" class="view-section">
                 <h2>Send Charms</h2>
-                <div onclick="alert('Open Camera')" style="height:150px; background:rgba(0,0,0,0.3); border-radius:12px; display:flex; align-items:center; justify-content:center; margin-bottom:15px; cursor:pointer;">
+                <div onclick="openScanner()" style="height:150px; background:rgba(0,0,0,0.3); border-radius:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;">
                     <i class="fa-solid fa-camera" style="font-size:32px;"></i> <span style="margin-left:10px">Scan QR</span>
                 </div>
                 <input type="text" id="send-uid" class="glass-input" placeholder="User ID">
                 <input type="number" id="send-amt" class="glass-input" placeholder="Amount">
-                <button class="glass-btn primary-btn" onclick="alert('Send Logic')" style="width:100%">Send</button>
+                <div id="send-swipe-container" style="margin-top:20px;">
+                    <div class="swipe-container">
+                        <div class="swipe-text">SLIDE TO SEND ></div>
+                        <div class="swipe-fill"></div>
+                        <div class="swipe-thumb"><i class="fa-solid fa-chevron-right" style="color:white;"></i></div>
+                    </div>
+                </div>
             </section>
 
-            <!-- WALLET RECEIVE -->
+            <!-- RECEIVE VIEW -->
             <section id="view-receive" class="view-section">
                 <h2>Receive Charms</h2>
                 <div id="receive-qr" style="display:flex; justify-content:center; padding:20px;"></div>
             </section>
 
-            <!-- HISTORY (Accessed via Profile) -->
+            <!-- HISTORY VIEW -->
             <section id="view-history" class="view-section">
                 <h2>History</h2>
                 <div id="history-list"></div>
             </section>
 
-            <!-- PROFILE -->
+            <!-- PROFILE VIEW -->
             <section id="view-profile" class="view-section">
                 <div class="glass-card" style="text-align:center;">
                     <i class="fa-solid fa-xmark" onclick="navigateTo('home')" style="position:absolute; top:10px; right:10px; cursor:pointer;"></i>
                     <img id="profile-avatar-lg" src="" style="width:100px; height:100px; border-radius:50%; border:3px solid var(--accent);">
                     <h2 id="profile-name-lg"></h2>
                     <p>ID: <span id="profile-id-lg"></span></p>
-                    <!-- BUTTON MY CHARACTER (RESTORED) -->
-                    <button class="glass-btn" onclick="navigateTo('collection')">My Character</button>
-                    <!-- BUTTON HISTORY (RESTORED) -->
-                    <button class="glass-btn" onclick="navigateTo('history')">History</button>
+                    <button class="glass-btn" onclick="navigateTo('collection')">My Collection</button>
                 </div>
             </section>
 
-            <!-- COLLECTION -->
+            <!-- COLLECTION VIEW -->
             <section id="view-collection" class="view-section">
                 <div class="tabs">
                     <div class="tab active" onclick="renderCollection('waifu')">Waifu</div>
@@ -173,7 +161,7 @@
                 <div id="collection-grid" class="coll-grid"></div>
             </section>
 
-            <!-- FRIENDS -->
+            <!-- FRIENDS VIEW -->
             <section id="view-friends" class="view-section">
                 <h2>Friends</h2>
                 <div class="tabs">
@@ -181,12 +169,14 @@
                     <div class="tab">Requests</div>
                     <div class="tab">Chat</div>
                 </div>
-                <div id="friends-list"><div class="glass-card">Friend List</div></div>
+                <div id="friends-list">
+                    <div class="glass-card">Friend List (Redis)</div>
+                </div>
             </section>
 
-            <!-- TOP -->
+            <!-- TOP VIEW -->
             <section id="view-top" class="view-section">
-                <h2>Top</h2>
+                <h2>Top / Leaderboard</h2>
                 <div class="tabs">
                     <div class="tab active" onclick="renderTop('waifu')">Waifu</div>
                     <div class="tab" onclick="renderTop('husband')">Husband</div>
@@ -195,49 +185,42 @@
                 <div id="top-list"></div>
             </section>
 
-            <!-- GAMES -->
+            <!-- GAMES VIEW -->
             <section id="view-games" class="view-section">
                 <h2>Games</h2>
-                <div class="glass-card"><h3>Tap Race</h3><p>Tap Fast!</p></div>
+                <div class="glass-card">
+                    <h3>Tap Race</h3>
+                    <p>Tap Fast!</p>
+                    <button class="glass-btn primary-btn">Play</button>
+                </div>
             </section>
 
-            <!-- SETTINGS (ALL FEATURES RESTORED) -->
+            <!-- SETTINGS VIEW -->
             <section id="view-settings" class="view-section">
                 <h2>Settings</h2>
                 <div class="glass-card">
-                    <h3>General</h3>
-                    <div class="setting-row">
-                        <span>Language</span>
-                        <select onchange="alert('Lang Logic')" style="background:#000; color:#fff; border:none;">
-                            <option>English</option>
-                            <option>Indonesia</option>
-                            <option>India</option>
-                            <option>Myanmar</option>
-                            <option>Arabic</option>
-                        </select>
-                    </div>
+                    <label>Language</label>
+                    <select id="lang-select" style="width:100%; padding:10px; border-radius:8px; background:#000; color:#fff;">
+                        <option value="en">English</option>
+                        <option value="idn">Indonesia</option>
+                        <option value="hi">India</option>
+                        <option value="my">Myanmar</option>
+                        <option value="ar">Arabic</option>
+                    </select>
                 </div>
                 <div class="glass-card">
-                    <h3>Appearance</h3>
-                    <!-- UPLOAD THEME (RESTORED) -->
-                    <div class="setting-row">
-                        <span>Upload Theme</span>
-                        <button class="glass-btn" onclick="document.getElementById('theme-file').click()">Upload</button>
-                        <input type="file" id="theme-file" hidden accept="image/*" onchange="handleThemeUpload(this)">
-                    </div>
-                    <!-- UPLOAD BGM (RESTORED) -->
-                    <div class="setting-row">
-                        <span>Upload BGM</span>
-                        <button class="glass-btn" onclick="document.getElementById('bgm-file').click()">Upload</button>
-                        <input type="file" id="bgm-file" hidden accept="audio/*" onchange="handleBGMUpload(this)">
-                    </div>
+                    <label>Background Theme</label>
+                    <button class="glass-btn" onclick="document.getElementById('theme-file').click()">Upload</button>
+                    <input type="file" id="theme-file" hidden accept="image/*">
                 </div>
                 <div class="glass-card">
-                    <h3>Notifications</h3>
-                    <div class="setting-row">
-                        <span>Sound Notifications</span>
-                        <i class="fa-solid fa-toggle-on" style="font-size:24px; color:var(--primary);"></i>
-                    </div>
+                    <label>Background Music (BGM)</label>
+                    <button class="glass-btn" onclick="document.getElementById('bgm-file').click()">Upload</button>
+                    <input type="file" id="bgm-file" hidden accept="audio/*">
+                </div>
+                <div class="glass-card">
+                    <label>Sound Notifications</label>
+                    <i class="fa-solid fa-toggle-on" style="font-size:24px; color:var(--primary);"></i>
                 </div>
             </section>
         </main>
@@ -246,12 +229,12 @@
         <nav class="bottom-bar">
             <div class="nav-item" onclick="navigateTo('send')"><i class="fa-solid fa-paper-plane"></i><span>Send</span></div>
             <div class="nav-item" onclick="navigateTo('receive')"><i class="fa-solid fa-qrcode"></i><span>Receive</span></div>
+            <div class="nav-item" onclick="navigateTo('history')"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></div>
             <div class="nav-item active" onclick="navigateTo('home')"><i class="fa-solid fa-house"></i><span>Home</span></div>
         </nav>
     </div>
 
     <!-- MODALS -->
-    <!-- Filter Modal -->
     <div id="modal-filter" class="modal-overlay" onclick="this.classList.remove('open')">
         <div class="bottom-sheet">
             <h3>Sort Market</h3>
@@ -261,6 +244,7 @@
                     <option value="All">All</option>
                     <option value="Common">Common</option>
                     <option value="Rare">Rare</option>
+                    <option value="Legendary">Legendary</option>
                 </select>
             </div>
             <div class="glass-card">
@@ -276,240 +260,47 @@
         </div>
     </div>
 
-    <!-- Sell Modal (2 Step) -->
+    <!-- P2P SELL MODAL -->
     <div id="modal-sell" class="modal-overlay" onclick="this.classList.remove('open')">
         <div class="bottom-sheet">
-            <h3>Sell Character</h3>
+            <h3>Sell Your Character</h3>
             <div class="tabs">
                 <div class="tab active" onclick="loadUserCollectionForSell('waifu')">Waifu</div>
                 <div class="tab" onclick="loadUserCollectionForSell('husband')">Husband</div>
             </div>
-            <!-- Step 1: Select Char -->
-            <div id="sell-select-step" style="max-height:300px; overflow-y:auto; margin-bottom:10px;">
-                <div id="sell-grid" class="coll-grid"></div>
+            
+            <!-- Step 1: Select -->
+            <div id="sell-select-step">
+                <div id="sell-grid" class="coll-grid" style="max-height:300px; overflow-y:auto;"></div>
             </div>
-            <!-- Step 2: Inputs (Hidden initially) -->
+            
+            <!-- Step 2: Form -->
             <div id="sell-input-step" style="display:none;">
                 <div style="text-align:center; margin-bottom:10px;">
                     <img id="sell-preview-img" src="" style="width:80px; border-radius:8px;">
-                    <h4 id="sell-preview-name">Char Name</h4>
+                    <h4 id="sell-preview-name"></h4>
                 </div>
                 <input type="number" id="sell-price" class="glass-input" placeholder="Price">
+                <input type="number" id="sell-qty" class="glass-input" value="1" placeholder="Quantity">
+                <input type="text" id="sell-category" class="glass-input" placeholder="Category (e.g. 🤝)">
                 <textarea id="sell-desc" class="glass-input" rows="2" placeholder="Description"></textarea>
                 <button class="glass-btn primary-btn" style="width:100%" onclick="submitSell()">List Item</button>
             </div>
         </div>
     </div>
 
-    <script>
-        const state = { user: { id: null, name: 'Traveler', avatar: '', balance: 0 }, marketTab: 'waifu' };
+    <div id="camera-view">
+        <video id="camera-video" autoplay playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+        <button class="glass-btn" onclick="closeScanner()" style="position:absolute; top:20px; right:20px; z-index:501;">Close</button>
+    </div>
 
-        window.addEventListener('load', async () => {
-            const tg = window.Telegram.WebApp;
-            tg.ready(); tg.expand();
-
-            state.user.id = tg.initDataUnsafe.user?.id || "123456";
-            state.user.name = tg.initDataUnsafe.user?.first_name || "Traveler";
-            state.user.avatar = tg.initDataUnsafe.user?.photo_url || "https://picsum.photos/seed/user/200/200";
-
-            document.getElementById('profile-name').innerText = state.user.name;
-            document.getElementById('profile-avatar').src = state.user.avatar;
-
-            const res = await fetch(`/api/user_info?user_id=${state.user.id}`);
-            if(res.ok) {
-                const data = await res.json();
-                state.user.balance = data.balance;
-                document.getElementById('balance-display').innerText = state.user.balance;
-            }
-        });
-
-        function navigateTo(viewId) {
-            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
-            const target = document.getElementById(`view-${viewId}`);
-            if(target) target.classList.add('active');
-            
-            if(viewId === 'market') renderMarket();
-            if(viewId === 'p2p') renderP2P();
-            if(viewId === 'receive') renderQR();
-            if(viewId === 'history') renderHistory();
-            if(viewId === 'collection') renderCollection('waifu');
-            if(viewId === 'top') renderTop('waifu');
-            if(viewId === 'profile') {
-                document.getElementById('profile-name-lg').innerText = state.user.name;
-                document.getElementById('profile-avatar-lg').src = state.user.avatar;
-                document.getElementById('profile-id-lg').innerText = state.user.id;
-            }
-
-            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-            const btn = document.querySelector(`.nav-item[onclick="navigateTo('${viewId}')"]`);
-            if(btn) btn.classList.add('active');
-        }
-
-        async function renderMarket() {
-            const type = document.querySelector('#view-market .tab.active').innerText.toLowerCase();
-            const sort = document.getElementById('filter-sort').value;
-            const rarity = document.getElementById('filter-rarity').value;
-            const res = await fetch(`/api/market?type=${type}&sort=${sort}&rarity=${rarity}`);
-            const data = await res.json();
-            const list = document.getElementById('market-list');
-            list.innerHTML = '';
-            if(data.items) {
-                data.items.forEach(item => {
-                    list.innerHTML += `<div class="glass-card">
-                        <div style="display:flex; gap:12px;">
-                            <img src="${item.image}" style="width:80px; height:100px; border-radius:8px; object-fit:cover;">
-                            <div style="flex:1;">
-                                <h3>${item.name}</h3>
-                                <div style="color:#ffd700;">${item.rarity}</div>
-                                <div style="margin-top:8px; display:flex; justify-content:space-between;">
-                                    <span style="font-weight:bold;">${item.price} <i class="fa-solid fa-gem"></i></span>
-                                    <button class="glass-btn primary-btn" onclick="buyMarket('${item._id}', ${item.price})">Buy</button>
-                                </div>
-                                <div style="font-size:10px; opacity:0.6;">Stock: ${item.stock}</div>
-                            </div>
-                        </div>
-                    </div>`;
-                });
-            }
-        }
-
-        async function renderP2P() {
-            const res = await fetch('/api/p2p_listings');
-            const data = await res.json();
-            const list = document.getElementById('p2p-list');
-            list.innerHTML = '';
-            if(data.items) {
-                data.items.forEach(item => {
-                    list.innerHTML += `<div class="glass-card">
-                        <div style="display:flex; gap:12px;">
-                            <img src="${item.char_data.image}" style="width:80px; height:100px; border-radius:8px; object-fit:cover;">
-                            <div style="flex:1;">
-                                <div style="font-size:10px; color:var(--primary);">Seller: ${item.seller_name}</div>
-                                <h3>${item.char_data.name}</h3>
-                                <div style="font-weight:bold;">${item.price} <i class="fa-solid fa-gem"></i></div>
-                            </div>
-                        </div>
-                    </div>`;
-                });
-            }
-        }
-
-        async function renderTop(type) {
-            const res = await fetch(`/api/top?type=${type}`);
-            const data = await res.json();
-            const list = document.getElementById('top-list');
-            list.innerHTML = '';
-            if(data.items) {
-                data.items.forEach((item, idx) => {
-                    list.innerHTML += `<div class="glass-card" style="display:flex; justify-content:space-between;"><span>#${idx+1} ${item.name}</span><span style="color:#ffd700;">${item.count || item.score}</span></div>`;
-                });
-            }
-        }
-
-        async function renderHistory() {
-            const res = await fetch(`/api/history?user_id=${state.user.id}`);
-            const data = await res.json();
-            const list = document.getElementById('history-list');
-            list.innerHTML = '';
-            if(data.items) {
-                data.items.forEach(tx => {
-                    list.innerHTML += `<div class="glass-card"><div>${tx.title}</div><small>${tx.amount} Charms</small></div>`;
-                });
-            }
-        }
-
-        async function renderCollection(type) {
-            const res = await fetch(`/api/my_collection?user_id=${state.user.id}&type=${type}`);
-            const data = await res.json();
-            const grid = document.getElementById('collection-grid');
-            grid.innerHTML = '';
-            if(data.items) {
-                data.items.forEach(char => {
-                    grid.innerHTML += `<div class="char-card-small"><img src="${char.image}" class="char-img"></div>`;
-                });
-            }
-        }
-
-        async function renderQR() {
-            const res = await fetch(`/api/qr_code?user_id=${state.user.id}`);
-            const data = await res.json();
-            if(data.ok) document.getElementById('receive-qr').innerHTML = `<img src="data:image/png;base64,${data.image_b64}" style="border-radius:12px;">`;
-        }
-
-        // --- ACTIONS ---
-        function switchMarketTab(type) {
-            state.marketTab = type;
-            document.querySelectorAll('#view-market .tab').forEach(el => el.classList.remove('active'));
-            event.target.classList.add('active');
-            renderMarket();
-        }
-        function applyFilter() {
-            document.getElementById('modal-filter').classList.remove('open');
-            renderMarket();
-        }
-        
-        // Sell Logic
-        let selectedSellChar = null;
-        async function openSellModal() {
-            document.getElementById('modal-sell').classList.add('open');
-            loadUserCollectionForSell('waifu');
-        }
-        async function loadUserCollectionForSell(type) {
-            const res = await fetch(`/api/my_collection?user_id=${state.user.id}&type=${type}`);
-            const data = await res.json();
-            const grid = document.getElementById('sell-grid');
-            grid.innerHTML = '';
-            if(data.items) {
-                data.items.forEach(char => {
-                    const div = document.createElement('div');
-                    div.className = 'char-card-small';
-                    div.innerHTML = `<img src="${char.image}" class="char-img">`;
-                    div.onclick = () => selectCharToSell(char, type);
-                    grid.appendChild(div);
-                });
-            }
-        }
-        function selectCharToSell(char, type) {
-            selectedSellChar = char;
-            document.getElementById('sell-select-step').style.display = 'none';
-            document.getElementById('sell-input-step').style.display = 'block';
-            document.getElementById('sell-preview-img').src = char.image;
-            document.getElementById('sell-preview-name').innerText = char.name;
-        }
-        async function submitSell() {
-            const price = document.getElementById('sell-price').value;
-            const desc = document.getElementById('sell-desc').value;
-            const res = await fetch('/api/sell_character', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({
-                    user_id: state.user.id, char_id: selectedSellChar.id,
-                    price: price, description: desc, type: state.marketTab
-                })
-            });
-            if((await res.json()).ok) {
-                alert('Listed!');
-                document.getElementById('modal-sell').classList.remove('open');
-            }
-        }
-
-        // Theme & BGM Uploads
-        function handleThemeUpload(e) {
-            const file = e.target.files[0];
-            if(file) {
-                const reader = new FileReader();
-                reader.onload = (evt) => document.getElementById('app-bg').style.backgroundImage = `url(${evt.target.result})`;
-                reader.readAsDataURL(file);
-            }
-        }
-        function handleBGMUpload(e) {
-            const file = e.target.files[0];
-            if(file) {
-                const audio = new Audio(URL.createObjectURL(file));
-                audio.play();
-                alert('Playing Custom BGM');
-            }
-        }
-    </script>
+    <!-- LOAD JS FILES IN ORDER -->
+    <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/core.js"></script>
+    <script src="/static/js/market.js"></script>
+    <script src="/static/js/p2p.js"></script>
+    <script src="/static/js/wallet.js"></script>
+    <script src="/static/js/profile.js"></script>
+    <script src="/static/js/settings.js"></script>
 </body>
 </html>
