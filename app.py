@@ -187,6 +187,76 @@ def api_qr_code():
         "image_b64": base64.b64encode(buf.getvalue()).decode()
     })
 
+# ... (Import dan Helper tetap sama) ...
+
+# --- ROUTES ---
+
+# ... (Route lain jangan diubah) ...
+
+# ================= FIXED ROUTE / TOP / =================
+@app.route('/api/top')
+def api_top():
+    type_ = request.args.get('type', 'charms')
+    
+    # 1. LOGIKA TOP CHARMS (REDIS)
+    # Mengambil Top 0 sampai 99 (100 user)
+    if type_ == 'charms' and r:
+        # zrevrange mengambil score dari yang tertinggi ke terendah
+        tops = r.zrevrange('leaderboard:charms', 0, 99, withscores=True)
+        res = []
+        for uid, score in tops:
+            # Cari data user lengkap di database registered_users
+            u = registered_users.find_one({'user_id': str(uid)})
+            
+            # Cek jika user TIDAK ada (Belum Start / Data Hilang)
+            if not u:
+                name = "Traveler" # Default Name
+                avatar = "https://picsum.photos/seed/defaultuser/200/200" # Default Avatar
+            else:
+                name = u.get('firstname', 'Traveler')
+                avatar = u.get('photo_url', 'https://picsum.photos/seed/user/200/200')
+            
+            res.append({
+                'uid': uid,
+                'name': name,
+                'avatar': avatar,
+                'score': int(score)
+            })
+        return jsonify({'ok': True, 'items': res})
+        
+    # 2. LOGIKA TOP WAIFU / HUSBAND (MONGODB)
+    elif type_ in ['waifu', 'husband']:
+        coll = husband_users_coll if type_ == 'husband' else waifu_users_coll
+        
+        if coll:
+            # Pipeline untuk menghitung jumlah karakter per user dan sort descending
+            pipeline = [
+                {
+                    "$project": {
+                        "name": "$firstname", 
+                        "count": {"$size": "$characters"}, 
+                        "photo_url": "$photo_url"
+                    }
+                }, 
+                {"$sort": {"count": -1}}, 
+                {"$limit": 100} # Ambil maks 100, jika user < 100, hanya muncul seadanya
+            ]
+            tops = list(coll.aggregate(pipeline))
+            
+            res = []
+            for item in tops:
+                # Handle default avatar jika photo_url null di database user
+                avatar = item.get('photo_url', 'https://picsum.photos/seed/user/200/200')
+                
+                res.append({
+                    'name': item.get('name', 'Traveler'),
+                    'count': item.get('count', 0),
+                    'avatar': avatar
+                })
+            return jsonify({'ok': True, 'items': res})
+            
+    return jsonify({'ok': True, 'items': []})
+
 
 # ================= RUN =================
 
