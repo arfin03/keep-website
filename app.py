@@ -7,13 +7,18 @@ import traceback
 from datetime import datetime
 
 from flask import Flask, request, jsonify, render_template, Response
-from bson import ObjectId
 
-# optional imports
+# optional imports (defensive)
 try:
     from pymongo import MongoClient
 except Exception:
     MongoClient = None
+
+# bson.ObjectId may be missing if pymongo not installed in environment; tolerate that.
+try:
+    from bson import ObjectId
+except Exception:
+    ObjectId = None
 
 try:
     import redis
@@ -50,6 +55,7 @@ def safe_mongo(uri):
         try:
             client.admin.command('ping')
         except Exception:
+            # ping may fail if no network at startup; still return client object
             pass
         return client
     except Exception:
@@ -63,6 +69,7 @@ def safe_redis(host, port, password):
         try:
             r.ping()
         except Exception:
+            # ok if ping fails at init
             pass
         return r
     except Exception:
@@ -81,24 +88,21 @@ def get_collection(client, dbname, collname):
     except Exception:
         return None
 
-# collections used
-# keep backward tolerant names: original repo used user_collection_lmaoooo for character coll,
-# but miniapps profiles are in user_collection_lmoooo (per user's message) — we will attempt both.
+# collections used (tolerant to variations in names)
 waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_lmaoooo') or get_collection(waifu_client, 'Character_catcher', 'user_collection_waifu')
 husband_users_coll = get_collection(husband_client, 'Character_catcher', 'user_collection_lmaoooo') or get_collection(husband_client, 'Character_catcher', 'user_collection_husband')
 
 registered_users = None
-global_user_profiles_coll = None  # this is where miniapps login profiles should live (user_collection_lmoooo)
+global_user_profiles_coll = None  # collection where miniapps might store profile (user_collection_lmoooo)
 if market_client is not None:
     try:
         registered_users = market_client['Character_catcher']['registered_users']
     except Exception:
         registered_users = None
+    # prefer the exact name user_collection_lmoooo (from your message), fallback to likely alternative
     try:
-        # This is the collection name you asked to prefer for miniapps: user_collection_lmoooo
         global_user_profiles_coll = market_client['Character_catcher']['user_collection_lmoooo']
     except Exception:
-        # fallback: try common alternative names
         try:
             global_user_profiles_coll = market_client['Character_catcher']['user_collection_lmaoooo']
         except Exception:
@@ -106,10 +110,26 @@ if market_client is not None:
 
 # ================ HELPERS ================
 def serialize_mongo(obj):
+    """
+    Convert Mongo-like objects (ObjectId) to JSON-serializable forms.
+    Works even if bson.ObjectId isn't available (ObjectId is None).
+    """
     if isinstance(obj, list):
         return [serialize_mongo(i) for i in obj]
     if isinstance(obj, dict):
-        return {k: serialize_mongo(str(v) if isinstance(v, ObjectId) else v) for k, v in obj.items()}
+        out = {}
+        for k, v in obj.items():
+            try:
+                if ObjectId is not None and isinstance(v, ObjectId):
+                    out[k] = str(v)
+                else:
+                    out[k] = serialize_mongo(v)
+            except Exception:
+                try:
+                    out[k] = str(v)
+                except Exception:
+                    out[k] = None
+        return out
     return obj
 
 def get_charms(uid):
@@ -179,22 +199,29 @@ def build_top_from_users_coll(users_coll, limit=100):
 def _try_many_fields_for_avatar(doc):
     if not isinstance(doc, dict):
         return None
-    # a list of likely avatar/photo fields
-    avatar = doc.get('photo_url') or doc.get('avatar') or doc.get('avatar_url') or doc.get('picture') or doc.get('profile', {}).get('avatar') if isinstance(doc.get('profile'), dict) else None
-    # sometimes nested in 'profile' as dict
-    if not avatar:
+    # try multiple common fields for avatar / photo
+    avatar = None
+    try:
+        avatar = doc.get('photo_url') or doc.get('avatar') or doc.get('avatar_url') or doc.get('picture')
+    except Exception:
+        avatar = None
+    # profile nested dict
+    profile = None
+    try:
         profile = doc.get('profile') or doc.get('profile_info') or None
-        if isinstance(profile, dict):
-            avatar = profile.get('avatar') or profile.get('photo') or profile.get('picture')
+    except Exception:
+        profile = None
+    if isinstance(profile, dict):
+        avatar = avatar or profile.get('avatar') or profile.get('photo') or profile.get('picture')
     return avatar
 
 def fetch_profile_fallback(uid, users_coll=None):
     """
-    Return a dict with keys: name, username, avatar.
+    Return dict: {name, username, avatar}
     Priority:
-      1) registered_users collection (photo_url, firstname, username)
-      2) global_user_profiles_coll (miniapps) - user_collection_lmoooo
-      3) provided users_coll (waifu/husband user collection) fields (first_name, firstname, username, avatar variants)
+      1) registered_users (photo_url, firstname, username)
+      2) global_user_profiles_coll (miniapps)
+      3) provided users_coll (waifu/husband)
       4) defaults
     """
     try:
@@ -230,10 +257,9 @@ def fetch_profile_fallback(uid, users_coll=None):
             except Exception:
                 pass
 
-        # 3) collection-specific user doc (waifu/husband)
+        # 3) users_coll (waifu/husband)
         if users_coll is not None:
             try:
-                # try several id variants
                 doc = users_coll.find_one({'user_id': uid_str}) or users_coll.find_one({'id': uid_str})
                 if doc is None and uid_str.isdigit():
                     doc = users_coll.find_one({'id': int(uid_str)})
@@ -244,11 +270,9 @@ def fetch_profile_fallback(uid, users_coll=None):
                     return {'name': name, 'username': username, 'avatar': avatar}
             except Exception:
                 pass
-
     except Exception:
         pass
 
-    # fallback default
     return {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
 
 # ================ ROUTES ================
@@ -282,8 +306,11 @@ def api_my_collection():
     try:
         if users_coll is None:
             return jsonify({"ok": True, "items": []})
-        # tolerant find: try string id then int
-        user_doc = users_coll.find_one({'id': str(uid)}) or users_coll.find_one({'id': int(uid)}) if (uid and uid.isdigit()) else users_coll.find_one({'id': str(uid)})
+        # tolerant find (string or int)
+        if uid and uid.isdigit():
+            user_doc = users_coll.find_one({'id': str(uid)}) or users_coll.find_one({'id': int(uid)})
+        else:
+            user_doc = users_coll.find_one({'id': str(uid)})
         if not user_doc:
             return jsonify({"ok": True, "items": []})
         items = user_doc.get('characters') or user_doc.get('waifu') or user_doc.get('husband') or user_doc.get('char') or []
@@ -296,9 +323,10 @@ def api_my_collection():
 def api_top():
     """
     GET /api/top?type=waifu|husband&limit=50
-    - tries Redis type-specific leaderboard first (leaderboard:charms:waifu)
-    - fallback to global charms set
-    - final fallback: aggregate from Mongo collection (count characters)
+    Priority:
+      1) Redis per-type leaderboard (leaderboard:charms:waifu)
+      2) Redis global leaderboard (leaderboard:charms)
+      3) Aggregate from Mongo users collection (count characters)
     """
     try:
         limit = int(request.args.get('limit', 100))
@@ -344,7 +372,7 @@ def api_top():
                         continue
                     raw.append((str(uid), int(doc.get('character_count') or 0)))
             else:
-                # global fallback: if registered_users exists, try reading charms from Redis per user
+                # global fallback using registered_users and redis charms per user
                 fallback = []
                 if registered_users is not None:
                     try:
@@ -360,20 +388,18 @@ def api_top():
                     except Exception:
                         raw = []
 
-        # build items with profile lookup in the priority:
-        # registered_users -> global_user_profiles_coll -> users_coll -> defaults
+        # build items with profile lookup priority: registered_users -> global_user_profiles_coll -> users_coll -> defaults
         items = []
         rank = 1
         for idx, (member, score) in enumerate(raw):
             uid = str(member)
             profile = {'name': DEFAULT_NAME, 'username': None, 'avatar': None}
-            # try registered_users and global profiles via fetch_profile_fallback (it checks both)
             try:
                 profile = fetch_profile_fallback(uid, users_coll=users_coll) or profile
             except Exception:
                 pass
 
-            # If still no avatar, make one more targeted attempt into global_user_profiles_coll
+            # if still no avatar, targeted check in global_user_profiles_coll
             avatar = profile.get('avatar') or None
             if not avatar and global_user_profiles_coll is not None:
                 try:
@@ -382,8 +408,7 @@ def api_top():
                         alt = global_user_profiles_coll.find_one({'id': int(uid)})
                     if alt:
                         avatar = _try_many_fields_for_avatar(alt) or avatar
-                        # if name/username missing, adopt from alt
-                        if not profile.get('name') or profile.get('name') == DEFAULT_NAME:
+                        if (not profile.get('name')) or profile.get('name') == DEFAULT_NAME:
                             profile['name'] = alt.get('firstname') or alt.get('first_name') or alt.get('displayName') or profile.get('name')
                         if not profile.get('username'):
                             profile['username'] = alt.get('username') or alt.get('handle') or profile.get('username')
@@ -391,7 +416,6 @@ def api_top():
                     pass
 
             if not avatar:
-                # final fallback
                 avatar = DEFAULT_AVATAR
 
             name = profile.get('name') or DEFAULT_NAME
@@ -403,7 +427,6 @@ def api_top():
                 'name': name,
                 'username': username,
                 'avatar': avatar,
-                # score & count for compatibility with various frontends
                 'charms': int(score),
                 'score': int(score),
                 'count': int(score)
@@ -450,7 +473,6 @@ def api_rebuild_leaderboard():
                 pipe.execute()
             return jsonify({"ok": True, "key": key, "count": count, "sample": agg[:20]})
         else:
-            # rebuild from registered_users charms values
             if registered_users is None:
                 return jsonify({"ok": False, "error": "no source collection available"})
             pipe = r.pipeline()
@@ -497,4 +519,5 @@ def stream_charms():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    # When running under Gunicorn, this part isn't used, but locally it helps.
     app.run(host="0.0.0.0", port=port, threaded=True)
