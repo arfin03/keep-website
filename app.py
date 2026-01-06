@@ -14,30 +14,29 @@ import qrcode
 from PIL import Image as PILImage
 
 # --- CONFIG ---
-API_ID    = int(os.getenv('API_ID', 21436816))
-API_HASH  = os.getenv('API_HASH', "c269918dddddbc041d536207cab72155")
-BOT_TOKEN = os.getenv('BOT_TOKEN', "7026790064:AAFNH83CuxYqvH0vGN4uPvxUXIRhVeduZ2g")
+API_ID    = int(os.getenv('API_ID', 123456))
+API_HASH  = os.getenv('API_HASH', "")
 MONGO_URI = os.getenv('MONGO_URI', "mongodb+srv://Keepwaifu:Keepwaifu@cluster0.i8aca.mongodb.net/?retryWrites=true&w=majority")
-MARKET_DB_URL = os.getenv('MARKET_DB_URL', "mongodb+srv://keephusband:keephusband@cluster0.pzhyl5l.mongodb.net/?appName=Cluster0")
-MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', "mongodb+srv://keep_waifu:keep_waifu@cluster0.ofbn9ju.mongodb.net/?appName=Cluster0")
-MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', )
+MARKET_DB_URL = os.getenv('MARKET_DB_URL', MONGO_URI)
+MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
+MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
 
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com')
 REDIS_PORT = int(os.getenv('REDIS_PORT', 13380))
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
 
-# --- CONSTANTS (Dari Request Anda) ---
+# --- CONSTANTS ---
 CATEGORY_MAP = {
-    '🏖': ('🏖𝒐𝒖𝒎𝒎𝒆𝒓 🏖', False), '👘': ('👘𝑲𝒊𝒎𝒐𝒏𝒐👘', False), '🧹': ('🧹𝑴𝒂𝒊𝒅🧹', False),
-    '🐰': ('🐰𝑩𝒖𝒏𝒏𝒚🐰', False), '🏜️': ('🏜️𝑬𝒈𝒚𝒑𝒕🏜️', False), '🎒': ('🎒𝑺𝒄𝒉𝒐𝒐𝒍🎒', False),
-    '💞': ('💞𝑽𝒂𝒍𝒆𝒏𝒕𝒊𝒏𝒆💞', False), '🎃': ('🎃𝑯𝒂𝒍𝒍𝒐𝒘𝒆𝒆𝒏🎃', False), '🥻': ('🥻𝑺𝒂𝒓𝒆𝒆🥻', False),
-    '💉': ('💉𝑵𝒖𝒓𝒐𝒆💉', False), '☃️': ('☃️𝑾𝒊𝒏𝒕𝒆𝒓☃️', False), '🎄': ('🎄𝑪𝒉𝒓𝒊𝒐𝒕𝒎𝒂𝒐🎄', False),
-    '👥': ('👥𝐃𝐮𝐨👥', False), '🤝': ('🤝𝐆𝐫𝐨𝐮𝐩🤝', False), '⚽': ('⚽𝑭𝒐𝒈𝒐𝒕𝒃𝒂𝒍𝒍⚽', False),
-    '🚨': ('🚨𝑷𝒐𝒍𝒊𝒄𝒆🚨', False), '🏀': ('🏀𝑩𝒂𝒐𝒌𝒆𝒕𝒃𝒂𝒍𝒍🏀', False), '🎩': ('🎩𝑻𝒖𝒙𝒆𝒅𝒐🎩', False),
-    '🏮': ('🏮𝑪𝒉𝒊𝒏𝒆𝒐𝒆🏮', False), '📙': ('📙𝑴𝒂𝒏𝒉𝒘𝒂📙', False), '👙': ('👙𝑩𝒊𝒌𝒊𝒏𝒊👙', False),
-    '🎊': ('🎊𝑪𝒉𝒆𝒆𝒓𝒍𝒆𝒂𝒅𝒆𝒓𝒐🎊', False), '🎮': ('🎮𝑮𝒂𝒎𝒆🎮', True), '💍': ('💍𝑴𝒂𝒓𝒓𝒊𝒆𝒅💍', False),
-    '👶': ('👶𝑪𝒉𝒊𝒃𝒊👶', True), '🕷': ('🕷𝑺𝒑𝒊𝒅𝒆𝒓🕷', False), '🎗️': ('🎗️𝑪𝒐𝒍𝒍𝒆𝒄𝒕𝒐𝒓🎗️', False),
-    '🔞': ('🔞𝑵𝒖𝒅𝒆𝒐🔞', False), '🪽': ('🪽𝑯𝒆𝒂𝒗𝒆𝒏𝒍𝒚🪽', False), '☀️': ('☀️𝑪𝒐𝒘𝒃𝒐𝒚 ☀️', False), '🌑': ('🌑𝒏𝒖𝒏🌑', False)
+    '🏖': '🏖𝒐𝒖𝒎𝒎𝒆𝒓 🏖', '👘': '👘𝑲𝒊𝒎𝒐𝒏𝒐👘', '🧹': '🧹𝑴𝒂𝒊𝒅🧹',
+    '🐰': '🐰𝑩𝒖𝒏𝒏𝒚🐰', '🏜️': '🏜️𝑬𝒈𝒚𝒕🏜️', '🎒': '🎒𝑺𝒄𝒉𝒐𝒐𝒍🎒',
+    '💞': '💞𝑽𝒂𝒍𝒆𝒏𝒕𝒊𝒏𝒆💞', '🎃': '🎃𝑯𝒂𝒍𝒍𝒐𝒘𝒆𝒆𝒏🎃', '🥻': '🥻𝑺𝒂𝒓𝒆𝒆🥻',
+    '💉': '💉𝑵𝒖𝒓𝒐𝒆💉', '☃️': '☃️𝑾𝒊𝒏𝒕𝒆𝒓☃️', '🎄': '🎄𝑪𝒉𝒓𝒊𝒐𝒕𝒎𝒂𝒐🎄',
+    '👥': '👥𝐃𝐮𝐨👥', '🤝': '🤝𝐆𝐫𝐨𝐮𝐩🤝', '⚽': '⚽𝑭𝒐𝒈𝒐𝒕𝒃𝒂𝒍𝒍⚽',
+    '🚨': '🚨𝑷𝒐𝒍𝒊𝒄𝒆🚨', '🏀': '🏀𝑩𝒂𝒐𝒌𝒆𝒕𝒃𝒂𝒍𝒍🏀', '🎩': '🎩𝑻𝒖𝒙𝒆𝒅𝒐🎩',
+    '🏮': '🏮𝑪𝒉𝒊𝒏𝒆𝒐𝒆🏮', '📙': '📙𝑴𝒂𝒏𝒉𝒘𝒂📙', '👙': '👙𝑩𝒊𝒌𝒊𝒏𝒊👙',
+    '🎊': '🎊𝑪𝒉𝒆𝒆𝒓𝒍𝒆𝒂𝒅𝒆𝒓𝒐🎊', '🎮': '🎮𝑮𝒂𝒎𝒆🎮', '💍': '💍𝑴𝒂𝒓𝒓𝒊𝒆𝒅💍',
+    '👶': '👶𝑪𝒉𝒊𝒃𝒊👶', '🕷': '🕷𝑺𝒑𝒊𝒅𝒆𝒓🕷', '🎗️': '🎗️𝑪𝒐𝒍𝒍𝒆𝒄𝒕𝒐𝒓🎗️',
+    '🔞': '🔞𝑵𝒖𝒅𝒆𝒐🔞', '🪽': '🪽𝑯𝒆𝒂𝒗𝒆𝒏𝒍𝒚🪽', '☀️': '☀️𝑪𝒐𝒘𝒃𝒐𝒚 ☀️', '🌑': '🌑𝒏𝒖𝒏🌑'
 }
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -55,11 +54,9 @@ try:
     husband_db = husband_client['Character_catcher']
     husband_users_coll = husband_db['user_collection_lmaoooo']
     
-    # General Info
     registered_users = market_client['Character_catcher']['registered_users']
-    charms_addresses = market_client['Character_catcher']['charms_addresses']
     
-    print("[DB] Connected Successfully")
+    print("[DB] Connected")
 except Exception as e:
     print(f"[DB] Error: {e}")
     market_db = None
@@ -82,7 +79,7 @@ def update_charms(uid, amt):
     if not r: return False
     try: 
         r.hincrby(f"user:{uid}", "charm", amt)
-        # Update leaderboard for charms
+        # Update leaderboard
         r.zadd('leaderboard:charms', {str(uid): get_charms(uid)})
         return True
     except: return False
@@ -96,7 +93,6 @@ def log_tx(uid, t_type, amt, title, detail=""):
     except: pass
 
 # --- ROUTES ---
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -116,10 +112,14 @@ def api_user_info():
 def api_market():
     db_type = request.args.get('type', 'waifu')
     sort_by = request.args.get('sort', 'price-asc')
+    rarity_filter = request.args.get('rarity', 'All')
     
     if not market_db: return jsonify({'ok': True, 'items': []})
     
     query = {'type': db_type}
+    if rarity_filter != 'All':
+        query['rarity'] = rarity_filter
+        
     sort_map = {
         'price-asc': [('price', 1)], 'price-desc': [('price', -1)],
         'newest': [('_id', -1)], 'oldest': [('_id', 1)], 'random': []
@@ -131,7 +131,7 @@ def api_market():
             items = list(coll.aggregate([{'$match': query}, {'$sample': {'size': 20}}]))
         else:
             items = list(coll.find(query).sort(sort_map.get(sort_by, [('price',1)])).limit(20))
-        
+            
         for item in items:
             item['_id'] = str(item['_id'])
             stock_key = f"market:stock:{item['_id']}"
@@ -146,7 +146,6 @@ def api_buy_market():
     uid = data.get('user_id'); item_id = data.get('item_id')
     
     if not market_db: return jsonify({'ok': False}), 500
-    
     coll = market_db['official_market']
     item = coll.find_one({'_id': ObjectId(item_id)})
     
@@ -162,6 +161,51 @@ def api_buy_market():
     
     log_tx(uid, 'buy', -item.get('price'), f"Bought {item.get('name')}")
     return jsonify({'ok': True, 'new_balance': get_charms(uid)})
+
+@app.route('/api/my_collection', methods=['GET'])
+def api_my_collection():
+    uid = request.args.get('user_id'); db_type = request.args.get('type', 'waifu')
+    coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
+    try:
+        user_doc = coll.find_one({'id': str(uid)}) or coll.find_one({'id': int(uid)})
+        items = user_doc.get('characters', []) if user_doc else []
+        return jsonify({'ok': True, 'items': items})
+    except: return jsonify({'ok': True, 'items': []})
+
+@app.route('/api/sell_character', methods=['POST'])
+def api_sell_character():
+    data = request.json
+    uid = data.get('user_id'); char_id = data.get('char_id')
+    price = data.get('price'); desc = data.get('description', '')
+    db_type = data.get('type', 'waifu')
+    category = data.get('category', '')
+    
+    coll_user = husband_users_coll if db_type == 'husband' else waifu_users_coll
+    user_doc = coll_user.find_one({'id': str(uid)})
+    if not user_doc: return jsonify({'ok': False, 'error': 'User not found'}), 404
+    
+    chars = user_doc.get('characters', [])
+    target_char = None
+    new_chars = []
+    for c in chars:
+        if str(c.get('id')) == str(char_id) and not target_char:
+            target_char = c
+            continue
+        new_chars.append(c)
+        
+    if not target_char: return jsonify({'ok': False, 'error': 'Char not found'}), 404
+    
+    coll_user.update_one({'_id': user_doc['_id']}, {'$set': {'characters': new_chars}})
+    
+    listing = {
+        'seller_id': str(uid), 'seller_name': data.get('seller_name'),
+        'char_data': target_char, 'price': price,
+        'description': desc, 'type': db_type, 'category': category,
+        'status': 'active', 'created_at': datetime.utcnow()
+    }
+    res = market_db['listings'].insert_one(listing)
+    
+    return jsonify({'ok': True, 'listing_id': str(res.inserted_id)})
 
 @app.route('/api/p2p_listings', methods=['GET'])
 def api_p2p_listings():
@@ -182,7 +226,6 @@ def api_buy_p2p():
     if str(listing.get('seller_id')) == str(buyer_id): return jsonify({'ok': False, 'error': 'Own Item'}), 400
     if get_charms(buyer_id) < listing.get('price'): return jsonify({'ok': False, 'error': 'No Charms'}), 400
     
-    # Logic Buy P2P
     update_charms(buyer_id, -listing.get('price'))
     update_charms(listing.get('seller_id'), listing.get('price'))
     
@@ -195,14 +238,13 @@ def api_buy_p2p():
     log_tx(buyer_id, 'p2p_buy', -listing.get('price'), f"P2P: {char_data.get('name')}")
     return jsonify({'ok': True})
 
-@app.route('/api/my_collection', methods=['GET'])
-def api_my_collection():
-    uid = request.args.get('user_id'); db_type = request.args.get('type', 'waifu')
-    coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
+@app.route('/api/history', methods=['GET'])
+def api_history():
+    uid = request.args.get('user_id')
+    if not r: return jsonify({'ok': True, 'items': []})
     try:
-        user_doc = coll.find_one({'id': str(uid)}) or coll.find_one({'id': int(uid)})
-        items = user_doc.get('characters', []) if user_doc else []
-        return jsonify({'ok': True, 'items': items})
+        raw = r.lrange(f"user:{uid}:txs", 0, 49)
+        return jsonify({'ok': True, 'items': [json.loads(r) for r in raw]})
     except: return jsonify({'ok': True, 'items': []})
 
 @app.route('/api/top', methods=['GET'])
@@ -222,15 +264,6 @@ def api_top():
         return jsonify({'ok': True, 'items': tops})
     return jsonify({'ok': True, 'items': []})
 
-@app.route('/api/history', methods=['GET'])
-def api_history():
-    uid = request.args.get('user_id')
-    if not r: return jsonify({'ok': True, 'items': []})
-    try:
-        raw = r.lrange(f"user:{uid}:txs", 0, 49)
-        return jsonify({'ok': True, 'items': [json.loads(r) for r in raw]})
-    except: return jsonify({'ok': True, 'items': []})
-
 @app.route('/api/qr_code', methods=['GET'])
 def api_qr_code():
     uid = request.args.get('user_id')
@@ -244,4 +277,4 @@ def api_qr_code():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port)
