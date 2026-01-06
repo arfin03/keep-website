@@ -1,10 +1,8 @@
 import os
 import io
 import json
-import logging
 import base64
 from datetime import datetime
-from time import sleep
 
 from flask import Flask, request, jsonify, render_template, Response
 from pymongo import MongoClient
@@ -14,17 +12,17 @@ import qrcode
 
 # ================= CONFIG =================
 
-API_ID    = int(os.getenv('API_ID', 123456))
-API_HASH  = os.getenv('API_HASH', "")
+API_ID = int(os.getenv('API_ID', 123456))
+API_HASH = os.getenv('API_HASH', "")
 
 MONGO_URI = os.getenv(
     'MONGO_URI',
     "mongodb+srv://Keepwaifu:Keepwaifu@cluster0.i8aca.mongodb.net/?retryWrites=true&w=majority"
 )
 
-MARKET_DB_URL      = os.getenv('MARKET_DB_URL', MONGO_URI)
-MONGO_URL_WAIFU    = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
-MONGO_URL_HUSBAND  = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
+MARKET_DB_URL = os.getenv('MARKET_DB_URL', MONGO_URI)
+MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
+MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
 
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com')
 REDIS_PORT = int(os.getenv('REDIS_PORT', 13380))
@@ -38,15 +36,15 @@ app = Flask(__name__, static_folder='static', template_folder='templates')
 
 market_client = MongoClient(MARKET_DB_URL)
 market_db = market_client['market_p2p']
-user_settings_coll = market_db['user_settings']
+user_settings_coll = market_db.get('user_settings')
 
 waifu_client = MongoClient(MONGO_URL_WAIFU)
 waifu_db = waifu_client['Character_catcher']
-waifu_users_coll = waifu_db['user_collection_lmaoooo']
+waifu_users_coll = waifu_db.get('user_collection_lmaoooo')
 
 husband_client = MongoClient(MONGO_URL_HUSBAND)
 husband_db = husband_client['Character_catcher']
-husband_users_coll = husband_db['user_collection_lmaoooo']
+husband_users_coll = husband_db.get('user_collection_lmaoooo')
 
 registered_users = market_client['Character_catcher']['registered_users']
 
@@ -75,7 +73,10 @@ def serialize_mongo(obj):
 
 
 def ensure_user_profile(uid, first_name=None, username=None, avatar=None):
-    """Upsert minimal profile info into registered_users collection."""
+    """
+    Upsert minimal profile info into registered_users collection.
+    Returns the user doc after upsert.
+    """
     if uid is None:
         return None
     uid_str = str(uid)
@@ -102,17 +103,24 @@ def ensure_user_profile(uid, first_name=None, username=None, avatar=None):
 def get_charms(uid):
     try:
         return int(r.hget(f"user:{uid}", "charm") or 0)
-    except:
+    except Exception:
         return 0
 
 
-def update_charms(uid, amt):
-    """Increment charms and update leaderboard + publish real-time update via Redis pubsub."""
+def update_charms(uid, amt, typ=None):
+    """
+    Increment charms and update leaderboard + publish real-time update via Redis pubsub.
+    typ: optional string 'waifu' or 'husband' to update type-specific leaderboard key.
+    Returns True on success, False otherwise.
+    """
     try:
         r.hincrby(f"user:{uid}", "charm", amt)
         current = get_charms(uid)
-        # update sorted set for leaderboard (score = charms)
+        # update global leaderboard
         r.zadd('leaderboard:charms', {str(uid): current})
+        # optionally update type-specific leaderboard
+        if typ and str(typ).lower() in ('waifu', 'husband'):
+            r.zadd(f'leaderboard:charms:{str(typ).lower()}', {str(uid): current})
         # log tx
         tx = {
             "type": "charm_change",
@@ -125,7 +133,7 @@ def update_charms(uid, amt):
         r.ltrim(f"user:{uid}:txs", 0, 99)
         # publish real-time event for any listening clients
         try:
-            payload = json.dumps({"user_id": str(uid), "charms": current})
+            payload = json.dumps({"user_id": str(uid), "charms": current, "type": typ})
             r.publish('charms_updates', payload)
         except Exception:
             pass
@@ -146,11 +154,11 @@ def log_tx(uid, t_type, amt, title, detail=""):
         }
         r.lpush(f"user:{uid}:txs", json.dumps(tx))
         r.ltrim(f"user:{uid}:txs", 0, 99)
-    except:
+    except Exception:
         pass
 
-
 # ================= ROUTES =================
+
 
 @app.route('/')
 def index():
@@ -159,10 +167,10 @@ def index():
 
 @app.route('/api/user_info')
 def api_user_info():
-    """Return minimal profile + charm balance. Also ensures user profile exists.
+    """
+    Return minimal profile + charm balance. Also ensures user profile exists.
 
-    You can pass optional query params: firstname, username, avatar to update profile on the fly.
-    Useful for the miniapp to call on page load so server has the latest info.
+    Optional query params: firstname, username, avatar (will be upserted if provided)
     """
     uid = request.args.get('user_id')
     firstname = request.args.get('firstname')
@@ -187,7 +195,8 @@ def api_user_info():
 
 @app.route('/api/update_profile', methods=['POST', 'GET'])
 def api_update_profile():
-    """Upsert profile information. Accepts JSON body or query params.
+    """
+    Upsert profile information. Accepts JSON body or query params.
 
     POST JSON: {user_id, firstname, username, avatar}
     """
@@ -204,7 +213,6 @@ def api_update_profile():
 
 @app.route('/api/my_collection')
 def api_my_collection():
-    # unchanged from your stable version
     uid = request.args.get('user_id')
     db_type = request.args.get('type', 'waifu')
 
@@ -249,7 +257,7 @@ def api_history():
     try:
         raw = r.lrange(f"user:{uid}:txs", 0, 50)
         return jsonify({"ok": True, "items": [json.loads(x) for x in raw]})
-    except:
+    except Exception:
         return jsonify({"ok": True, "items": []})
 
 
@@ -269,21 +277,56 @@ def api_qr_code():
         "image_b64": base64.b64encode(buf.getvalue()).decode()
     })
 
-
 # ================= LEADERBOARD / TOP ENDPOINTS =================
+
 
 @app.route('/api/top')
 def api_top():
-    """Return top users by charms. Query params: limit (default 100).
+    """
+    Return top users by charms. Supports optional query params:
+      - limit (1..100)
+      - type (waifu|husband) -> will try type-specific leaderboard key `leaderboard:charms:{type}`
 
-    Response: {ok: True, items: [{rank, user_id, name, username, avatar, charms}, ...]}
+    If the leaderboard is empty the endpoint will fall back to:
+      1) global `leaderboard:charms`
+      2) scanning `registered_users` and reading charms from Redis (best-effort)
     """
     try:
         limit = int(request.args.get('limit', 100))
         if limit <= 0 or limit > 100:
             limit = 100
 
-        raw = r.zrevrange('leaderboard:charms', 0, limit - 1, withscores=True)
+        typ = (request.args.get('type') or '').lower()
+        if typ in ('waifu', 'husband'):
+            key = f'leaderboard:charms:{typ}'
+        else:
+            key = 'leaderboard:charms'
+
+        # try primary key
+        raw = r.zrevrange(key, 0, limit - 1, withscores=True)
+
+        # fallback to global key if type-specific empty
+        if not raw and key != 'leaderboard:charms':
+            raw = r.zrevrange('leaderboard:charms', 0, limit - 1, withscores=True)
+
+        # final fallback: build in-memory list by scanning registered_users and reading charms from Redis
+        if not raw:
+            candidates = []
+            for u in registered_users.find({}, {'user_id': 1, 'firstname': 1, 'username': 1, 'photo_url': 1}):
+                uid = u.get('user_id')
+                if not uid:
+                    continue
+                try:
+                    charms = get_charms(uid)
+                except Exception:
+                    charms = 0
+                if charms > 0:
+                    candidates.append((str(uid), int(charms)))
+            # sort desc by charms
+            candidates.sort(key=lambda x: -x[1])
+            # normalize to same shape as zrevrange withscores: list of (member, score)
+            raw = [(m, s) for m, s in candidates[:limit]]
+
         items = []
         rank = 1
         for member, score in raw:
@@ -307,7 +350,9 @@ def api_top():
 
 @app.route('/api/top_user')
 def api_top_user():
-    """Return a single user's rank and charms. Query param: user_id"""
+    """
+    Return a single user's rank and charms. Query param: user_id
+    """
     uid = request.args.get('user_id')
     if uid is None:
         return jsonify({"ok": False, "error": "missing user_id"}), 400
@@ -322,14 +367,54 @@ def api_top_user():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route('/api/rebuild_leaderboard')
+def api_rebuild_leaderboard():
+    """
+    Rebuild a leaderboard sorted set from registered_users + Redis charms.
+
+    Query params:
+      - type (optional) : waifu|husband -> uses key leaderboard:charms:{type}
+      - dry (optional) : if set to 1, will not write to Redis, just return counts
+    """
+    try:
+        typ = (request.args.get('type') or '').lower()
+        dry = request.args.get('dry') == '1'
+        if typ in ('waifu', 'husband'):
+            key = f'leaderboard:charms:{typ}'
+        else:
+            key = 'leaderboard:charms'
+
+        pipe = r.pipeline()
+        counts = 0
+        entries = []
+        for u in registered_users.find({}, {'user_id': 1}):
+            uid = u.get('user_id')
+            if not uid:
+                continue
+            charms = get_charms(uid)
+            if charms > 0:
+                counts += 1
+                entries.append({'user_id': str(uid), 'charms': int(charms)})
+                if not dry:
+                    pipe.zadd(key, {str(uid): int(charms)})
+        if not dry:
+            pipe.execute()
+
+        return jsonify({"ok": True, "key": key, "count": counts, "sample": entries[:20]})
+    except Exception as e:
+        print('[REBUILD_LEADERBOARD_ERROR]', e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 # ================= SSE / REAL-TIME STREAM =================
+
 
 @app.route('/stream/charms')
 def stream_charms():
-    """Server-Sent Events endpoint that streams charm updates in real-time.
+    """
+    Server-Sent Events endpoint that streams charm updates in real-time.
 
     Clients should connect with an EventSource to this URL. The server will forward messages
-    published to Redis channel 'charms_updates'. Each message is a JSON payload: {user_id, charms}.
+    published to Redis channel 'charms_updates'. Each message is a JSON payload: {user_id, charms, type}.
     """
     def event_stream():
         pubsub = r.pubsub(ignore_subscribe_messages=True)
@@ -338,21 +423,21 @@ def stream_charms():
             for message in pubsub.listen():
                 if message is None:
                     continue
-                if message['type'] != 'message':
+                if message.get('type') != 'message':
                     continue
-                data = message['data']
+                data = message.get('data')
                 # data is a string because decode_responses=True
                 yield f"data: {data}\n\n"
         except GeneratorExit:
             try:
                 pubsub.close()
-            except:
+            except Exception:
                 pass
         except Exception as e:
             print('[SSE ERROR]', e)
             try:
                 pubsub.close()
-            except:
+            except Exception:
                 pass
 
     return Response(event_stream(), mimetype='text/event-stream')
@@ -362,4 +447,5 @@ def stream_charms():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    # threaded True to allow multiple concurrent SSE clients in dev; for production use a proper WSGI server
     app.run(host="0.0.0.0", port=port, threaded=True)
