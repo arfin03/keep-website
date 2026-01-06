@@ -179,51 +179,100 @@ try:
         except Exception:
             return 0
 
-    # NEW: upsert to top_global_db (mongodb) and to Redis hash
-    def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
-        """
-        Ensure top_global_db and Redis hold latest profile/charms for uid.
-        Fields in top_global_db: user_id, username, firstname, avatar, charms, updated_at
-        """
-        uid_s = str(uid)
-        # determine current charms
+# --- REPLACE or ADD these snippets in app.py ---
+
+# 1) enhanced upsert logging (replace existing upsert_top_global)
+def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
+    """
+    Ensure top_global_db and Redis hold latest profile/charms for uid.
+    Also log to stdout so Heroku logs show what's happening.
+    """
+    uid_s = str(uid)
+    charms = 0
+    try:
         charms = get_charms(uid_s)
-        now = datetime.utcnow()
+    except Exception:
+        charms = 0
+    now = datetime.utcnow()
 
-        # write to redis hash if available
-        if r is not None:
-            try:
-                mapping = {}
-                if avatar is not None:
-                    mapping['avatar'] = avatar
-                if username is not None:
-                    mapping['username'] = username
-                if firstname is not None:
-                    mapping['firstname'] = firstname
-                # always keep charms in redis
-                mapping['charm'] = str(charms)
-                if mapping:
+    # write to redis hash if available
+    if r is not None:
+        try:
+            mapping = {}
+            if avatar is not None:
+                mapping['avatar'] = avatar
+            if username is not None:
+                mapping['username'] = username
+            if firstname is not None:
+                mapping['firstname'] = firstname
+            mapping['charm'] = str(charms)
+            if mapping:
+                # hset with mapping if redis-py supports it; fallback to hset per key
+                try:
                     r.hset(f"user:{uid_s}", mapping=mapping)
-                # update sorted sets too (score)
-                r.zadd('leaderboard:charms', {str(uid_s): charms})
-            except Exception:
-                pass
+                except Exception:
+                    for k, v in mapping.items():
+                        r.hset(f"user:{uid_s}", k, v)
+            r.zadd('leaderboard:charms', {str(uid_s): charms})
+        except Exception as ex:
+            print(f"[upsert_top_global][redis_error] uid={uid_s} err={ex}", flush=True)
 
-        # write to mongo top_global_db
+    # write to mongo top_global_db
+    if top_global_coll is not None:
+        try:
+            doc = {
+                'user_id': uid_s,
+                'username': username,
+                'firstname': firstname,
+                'avatar': avatar,
+                'charms': int(charms),
+                'updated_at': now
+            }
+            top_global_coll.update_one({'user_id': uid_s}, {'$set': doc}, upsert=True)
+            print(f"[upsert_top_global][mongo_upsert] uid={uid_s} username={username} firstname={firstname} charms={charms} avatar={avatar}", flush=True)
+        except Exception as ex:
+            print(f"[upsert_top_global][mongo_error] uid={uid_s} err={ex}", flush=True)
+    else:
+        print(f"[upsert_top_global][mongo_missing] uid={uid_s} charms={charms}", flush=True)
+
+# 2) debug endpoint to inspect status of top_global_db, registered_users, and redis
+@app.route('/api/debug_top_status')
+def api_debug_top_status():
+    info = {
+        "top_global_coll_exists": top_global_coll is not None,
+        "registered_users_exists": registered_users is not None,
+        "global_user_profiles_coll_exists": global_user_profiles_coll is not None,
+        "waifu_users_coll_exists": waifu_users_coll is not None,
+        "husband_users_coll_exists": husband_users_coll is not None,
+        "redis_available": r is not None,
+    }
+    try:
         if top_global_coll is not None:
-            try:
-                doc = {
-                    'user_id': uid_s,
-                    'username': username,
-                    'firstname': firstname,
-                    'avatar': avatar,
-                    'charms': int(charms),
-                    'updated_at': now
-                }
-                # upsert (only set provided fields)
-                top_global_coll.update_one({'user_id': uid_s}, {'$set': doc}, upsert=True)
-            except Exception:
-                pass
+            info['top_global_count'] = int(top_global_coll.count_documents({}))
+            info['top_global_sample'] = list(top_global_coll.find({}, {"_id": 0}).limit(5))
+        else:
+            info['top_global_count'] = 0
+            info['top_global_sample'] = []
+    except Exception as ex:
+        info['top_global_error'] = str(ex)
+
+    try:
+        if registered_users is not None:
+            info['registered_users_count'] = int(registered_users.count_documents({}))
+        else:
+            info['registered_users_count'] = 0
+    except Exception as ex:
+        info['registered_users_error'] = str(ex)
+
+    try:
+        if r is not None:
+            info['redis_zcard_leaderboard'] = r.zcard('leaderboard:charms')
+        else:
+            info['redis_zcard_leaderboard'] = 0
+    except Exception as ex:
+        info['redis_error'] = str(ex)
+
+    return jsonify({"ok": True, "info": info})
 
     def update_charms(uid: str, amt: int, typ: str = None) -> bool:
         """
