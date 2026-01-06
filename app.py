@@ -1,7 +1,3 @@
-Di bagian my collection sudah bagus sekarang kita perbaiki dulu di bagian lain untuk sekarang kita perbaiki di bagian top
-
-Untuk app.py yang sudah di perbaiki di bagian my collection nya ini jadi nanti jangan di ubah lagi 
-
 import os
 import io
 import json
