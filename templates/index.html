@@ -141,35 +141,36 @@
                 <div id="history-list"></div>
             </section>
 
-            <!-- PROFILE VIEW -->
+            <!-- VIEW: PROFILE (DIPERBAIKI) -->
 <section id="view-profile" class="view-section">
-    <div class="glass-card" style="text-align:center; position: relative;">
-        <!-- Tombol Close (Icon X Keren) di pojok kanan atas -->
-        <i class="fa-solid fa-xmark" onclick="navigateTo('home')" style="position:absolute; top:10px; right:10px; cursor:pointer; font-size:20px; color:rgba(255,255,255,0.7);"></i>
+    <div class="glass-card" style="text-align:center;">
+        <!-- Tombol Close (Icon X) -->
+        <i class="fa-solid fa-xmark" onclick="navigateTo('home')" style="position:absolute; top:10px; right:10px; cursor:pointer; font-size:20px;"></i>
         
-        <!-- Tampilan User -->
-        <img id="profile-avatar-lg" src="" style="width:100px; height:100px; border-radius:50%; border:3px solid var(--accent); object-fit: cover;">
-        <h2 id="profile-name-lg" style="margin: 10px 0;">Traveler</h2>
-        <p style="margin:0; opacity:0.7;">ID: <span id="profile-id-lg">Loading...</span></p>
+        <img id="profile-avatar-lg" src="" style="width:100px; height:100px; border-radius:50%; border:3px solid var(--accent);">
+        <h2 id="profile-name-lg"></h2>
+        <p style="margin:0; opacity:0.7;">ID: <span id="profile-id-lg"></span></p>
         
-        <!-- TOMBOL MY COLLECTION (Pastikan ada onclick ini) -->
-        <button class="glass-btn primary-btn" style="width:100%; margin-top:20px; padding:12px;" onclick="navigateTo('collection')">
+        <!-- TOMBOL MY COLLECTION (DIBUAT BESAR & JELAS) -->
+        <button class="glass-btn primary-btn" onclick="navigateTo('collection')" style="width:100%; margin-top:20px; padding:15px; font-size:16px;">
             <i class="fa-solid fa-layer-group"></i> My Collection
         </button>
     </div>
 </section>
 
-<!-- COLLECTION VIEW (Pastikan ID ini ada) -->
+<!-- VIEW: COLLECTION (DIPERBAIKI ADA NAMA DI BAWAH) -->
 <section id="view-collection" class="view-section">
-    <h2 style="margin-bottom:10px;">My Collection</h2>
-    <!-- Tabs Waifu / Husband -->
+    <h2>My Collection</h2>
+    
+    <!-- Toggle Waifu/Husband -->
     <div class="tabs">
         <div class="tab active" onclick="renderCollection('waifu')">Waifu</div>
         <div class="tab" onclick="renderCollection('husband')">Husband</div>
     </div>
-    <!-- Grid Tempat Menampilkan Character -->
+    
+    <!-- Grid Menampilkan Gambar & Nama -->
     <div id="collection-grid" class="coll-grid">
-        <!-- Item akan muncul di sini via JS -->
+        <!-- Item akan diisi oleh JS -->
     </div>
 </section>
 
