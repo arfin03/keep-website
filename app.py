@@ -1,7 +1,6 @@
 import os
 import io
 import json
-import logging
 import base64
 from datetime import datetime
 
@@ -13,21 +12,18 @@ import qrcode
 
 # ================= CONFIG =================
 
-API_ID    = int(os.getenv('API_ID', 123456))
-API_HASH  = os.getenv('API_HASH', "")
-
 MONGO_URI = os.getenv(
     'MONGO_URI',
     "mongodb+srv://Keepwaifu:Keepwaifu@cluster0.i8aca.mongodb.net/?retryWrites=true&w=majority"
 )
 
-MARKET_DB_URL      = os.getenv('MARKET_DB_URL', MONGO_URI)
-MONGO_URL_WAIFU    = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
-MONGO_URL_HUSBAND  = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
+MARKET_DB_URL = os.getenv('MARKET_DB_URL', MONGO_URI)
+MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
+MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
 
-REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com')
-REDIS_PORT = int(os.getenv('REDIS_PORT', 13380))
-REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
+REDIS_HOST = os.getenv('REDIS_HOST')
+REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD')
 
 # ================= APP =================
 
@@ -67,6 +63,19 @@ def serialize_mongo(obj):
             for k, v in obj.items()
         }
     return obj
+
+
+def save_user_profile(uid, firstname, avatar):
+    if not r:
+        return
+    r.hset(
+        f"user:profile:{uid}",
+        mapping={
+            "uid": str(uid),
+            "firstname": firstname,
+            "avatar": avatar
+        }
+    )
 
 
 def get_charms(uid):
@@ -110,16 +119,20 @@ def index():
 def api_user_info():
     uid = request.args.get('user_id')
     u = registered_users.find_one({'user_id': str(uid)}) or {}
+
+    name = u.get('firstname', 'Traveler')
+    avatar = u.get('photo_url', 'https://picsum.photos/200')
+
+    save_user_profile(uid, name, avatar)
+
     return jsonify({
         "ok": True,
         "id": uid,
-        "name": u.get('firstname', 'Traveler'),
-        "avatar": u.get('photo_url', 'https://picsum.photos/200'),
+        "name": name,
+        "avatar": avatar,
         "balance": get_charms(uid)
     })
 
-
-# ================= FIXED MY COLLECTION =================
 
 @app.route('/api/my_collection')
 def api_my_collection():
@@ -128,37 +141,25 @@ def api_my_collection():
 
     users_coll = husband_users_coll if db_type == 'husband' else waifu_users_coll
 
-    try:
-        user_doc = (
-            users_coll.find_one({'id': str(uid)}) or
-            users_coll.find_one({'id': int(uid)})
-        )
+    user_doc = (
+        users_coll.find_one({'id': str(uid)}) or
+        users_coll.find_one({'id': int(uid)})
+    )
 
-        if not user_doc:
-            return jsonify({"ok": True, "items": []})
+    if not user_doc:
+        return jsonify({"ok": True, "items": []})
 
-        items = (
-            user_doc.get('characters') or
-            user_doc.get('waifu') or
-            user_doc.get('husband') or
-            user_doc.get('char') or
-            []
-        )
+    items = (
+        user_doc.get('characters') or
+        user_doc.get('waifu') or
+        user_doc.get('husband') or
+        []
+    )
 
-        items = serialize_mongo(items)
-
-        return jsonify({
-            "ok": True,
-            "items": items
-        })
-
-    except Exception as e:
-        print("[MY_COLLECTION ERROR]", e)
-        return jsonify({
-            "ok": False,
-            "items": [],
-            "error": str(e)
-        }), 500
+    return jsonify({
+        "ok": True,
+        "items": serialize_mongo(items)
+    })
 
 
 @app.route('/api/history')
@@ -174,6 +175,7 @@ def api_history():
 @app.route('/api/qr_code')
 def api_qr_code():
     uid = request.args.get('user_id')
+
     qr = qrcode.QRCode(box_size=8, border=3)
     qr.add_data(str(uid))
     qr.make(fit=True)
@@ -187,75 +189,69 @@ def api_qr_code():
         "image_b64": base64.b64encode(buf.getvalue()).decode()
     })
 
-# ... (Import dan Helper tetap sama) ...
 
-# --- ROUTES ---
+# ================= TOP (FIXED) =================
 
-# ... (Route lain jangan diubah) ...
-
-# ================= FIXED ROUTE / TOP / =================
 @app.route('/api/top')
 def api_top():
     type_ = request.args.get('type', 'charms')
-    
-    # 1. LOGIKA TOP CHARMS (REDIS)
-    # Mengambil Top 0 sampai 99 (100 user)
-    if type_ == 'charms' and r:
-        # zrevrange mengambil score dari yang tertinggi ke terendah
+
+    # ===== TOP CHARMS =====
+    if type_ == 'charms' and r is not None:
         tops = r.zrevrange('leaderboard:charms', 0, 99, withscores=True)
         res = []
+
         for uid, score in tops:
-            # Cari data user lengkap di database registered_users
-            u = registered_users.find_one({'user_id': str(uid)})
-            
-            # Cek jika user TIDAK ada (Belum Start / Data Hilang)
-            if not u:
-                name = "Traveler" # Default Name
-                avatar = "https://picsum.photos/seed/defaultuser/200/200" # Default Avatar
-            else:
-                name = u.get('firstname', 'Traveler')
-                avatar = u.get('photo_url', 'https://picsum.photos/seed/user/200/200')
-            
+            profile = r.hgetall(f"user:profile:{uid}")
             res.append({
-                'uid': uid,
-                'name': name,
-                'avatar': avatar,
-                'score': int(score)
+                "uid": uid,
+                "name": profile.get("firstname", "Traveler"),
+                "avatar": profile.get("avatar", "https://picsum.photos/200"),
+                "score": int(score)
             })
-        return jsonify({'ok': True, 'items': res})
-        
-    # 2. LOGIKA TOP WAIFU / HUSBAND (MONGODB)
-    elif type_ in ['waifu', 'husband']:
+
+        return jsonify({"ok": True, "items": res})
+
+    # ===== TOP WAIFU / HUSBAND =====
+    if type_ in ['waifu', 'husband']:
         coll = husband_users_coll if type_ == 'husband' else waifu_users_coll
-        
-        if coll:
-            # Pipeline untuk menghitung jumlah karakter per user dan sort descending
-            pipeline = [
+        if coll is None:
+            return jsonify({"ok": True, "items": []})
+
+        pipeline = [
+            {
+                "$project": {
+                    "name": "$firstname",
+                    "count": {
+                        "$cond": [
+                            {"$isArray": "$characters"},
+                            {"$size": "$characters"},
+                            0
+                        ]
+                    },
+                    "photo_url": "$photo_url"
+                }
+            },
+            {"$sort": {"count": -1}},
+            {"$limit": 100}
+        ]
+
+        tops = list(coll.aggregate(pipeline))
+        tops = serialize_mongo(tops)
+
+        return jsonify({
+            "ok": True,
+            "items": [
                 {
-                    "$project": {
-                        "name": "$firstname", 
-                        "count": {"$size": "$characters"}, 
-                        "photo_url": "$photo_url"
-                    }
-                }, 
-                {"$sort": {"count": -1}}, 
-                {"$limit": 100} # Ambil maks 100, jika user < 100, hanya muncul seadanya
+                    "name": t.get("name", "Traveler"),
+                    "count": t.get("count", 0),
+                    "avatar": t.get("photo_url") or "https://picsum.photos/200"
+                }
+                for t in tops
             ]
-            tops = list(coll.aggregate(pipeline))
-            
-            res = []
-            for item in tops:
-                # Handle default avatar jika photo_url null di database user
-                avatar = item.get('photo_url', 'https://picsum.photos/seed/user/200/200')
-                
-                res.append({
-                    'name': item.get('name', 'Traveler'),
-                    'count': item.get('count', 0),
-                    'avatar': avatar
-                })
-            return jsonify({'ok': True, 'items': res})
-            
-    return jsonify({'ok': True, 'items': []})
+        })
+
+    return jsonify({"ok": True, "items": []})
 
 
 # ================= RUN =================
