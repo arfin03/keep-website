@@ -48,10 +48,9 @@ try:
     MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
 
     # Redis env handling (support REDIS_HOST/REDIS_URL)
-    REDIS_HOST = os.getenv('REDIS_HOST') or os.getenv('REDIS_URL') or 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com'
+    REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com')
     REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 13380)
-    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
-
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
     # ---------- init helpers ----------
     def safe_mongo(uri: str):
         if MongoClient is None or not uri:
