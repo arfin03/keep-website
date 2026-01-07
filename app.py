@@ -1,4 +1,3 @@
-# app.py (full replacement - cleaned, fixed indentation & avatar handling)
 import os
 import json
 import traceback
@@ -34,7 +33,6 @@ def safe_int(v, default):
         return default
 
 # defaults (env override)
-# Do NOT force picsum here — frontend should show local placeholder if needed
 DEFAULT_AVATAR = None
 DEFAULT_NAME = os.getenv('DEFAULT_NAME', 'Traveler')
 
@@ -48,12 +46,10 @@ try:
     MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
     MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
 
-    # Redis env handling
-    REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com')  
-    REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 13380)  
-    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")  
+    REDIS_HOST = os.getenv('REDIS_HOST') or os.getenv('REDIS_URL')
+    REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 6379)
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD')
 
-    # ---------- init helpers ----------
     def safe_mongo(uri: str):
         if MongoClient is None or not uri:
             return None
@@ -91,7 +87,6 @@ try:
     waifu_client = safe_mongo(MONGO_URL_WAIFU)
     husband_client = safe_mongo(MONGO_URL_HUSBAND)
 
-    # fallback to market_client if specific clients missing
     if waifu_client is None:
         waifu_client = market_client
     if husband_client is None:
@@ -107,7 +102,6 @@ try:
         except Exception:
             return None
 
-    # ---------- collections ----------
     waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_lmaoooo')
     if waifu_users_coll is None:
         waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_waifu')
@@ -137,7 +131,6 @@ try:
         except Exception:
             top_global_coll = None
 
-    # ---------- helpers ----------
     def serialize_mongo(obj: Any):
         if isinstance(obj, list):
             return [serialize_mongo(i) for i in obj]
@@ -157,7 +150,6 @@ try:
             return out
         return obj
 
-    # avatar extraction: tries many common fields, skips picsum/static placeholders
     def _try_many_fields_for_avatar(doc: Any):
         if not isinstance(doc, dict):
             return None
@@ -176,7 +168,6 @@ try:
         if isinstance(profile, dict) and not cand:
             cand = (profile.get('avatar') or profile.get('photo') or profile.get('picture') or profile.get('image') or None)
 
-        # telegram-specific: some DBs store file id or userpic token
         try:
             tgfile = doc.get('telegram_photo') or doc.get('tg_photo') or doc.get('userpic') or doc.get('photo_file_id')
             if tgfile and isinstance(tgfile, str) and tgfile.strip():
@@ -187,7 +178,6 @@ try:
         except Exception:
             pass
 
-        # if list, pick first valid
         if isinstance(cand, list):
             for el in cand:
                 if isinstance(el, str) and el.strip().startswith('http'):
@@ -207,7 +197,6 @@ try:
                 return url
         return None
 
-    # pick first valid http url from value (skip picsum)
     def _pick_first_valid_image(value):
         if isinstance(value, list):
             for el in value:
@@ -225,7 +214,6 @@ try:
                 return url
         return None
 
-    # ---------- Charms helpers ----------
     def get_charms(uid: str) -> int:
         try:
             if r is not None:
@@ -296,7 +284,6 @@ try:
             print(f"[update_charms] err={ex}", flush=True)
             return False
 
-    # ---------- doc find & normalize ----------
     def _find_doc_in_coll_variants(coll, uid_s):
         if coll is None:
             return None
@@ -346,7 +333,6 @@ try:
         out['avatar'] = avatar
         return out
 
-    # ---------- upsert_top_global ----------
     def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
         uid_s = str(uid)
         try:
@@ -404,7 +390,6 @@ try:
             except Exception as ex:
                 print(f"[upsert_top_global][mongo_error] uid={uid_s} err={ex}", flush=True)
 
-    # ---------- ensure_user_profile ----------
     def ensure_user_profile(uid: str, first_name: str = None, username: str = None, avatar: str = None):
         if uid is None:
             return None
@@ -552,7 +537,6 @@ try:
 
         return chosen
 
-    # ---------- build top from users coll ----------
     def build_top_from_users_coll(users_coll, limit=100):
         if users_coll is None:
             return []
@@ -580,7 +564,7 @@ except Exception:
     def upsert_top_global(uid, firstname=None, username=None, avatar=None): return None
     def build_top_from_users_coll(users_coll, limit=100): return []
 
-# ================= ROUTES =================
+# ROUTES
 @app.route('/')
 def index():
     if _init_error:
@@ -593,7 +577,6 @@ def show_init_error():
         return Response(_init_error, mimetype='text/plain'), 500
     return jsonify({"ok": True, "msg": "no init error"}), 200
 
-# debug status
 @app.route('/api/debug_top_status')
 def api_debug_top_status():
     info = {
@@ -644,27 +627,32 @@ def api_inspect_user():
     out = {'ok': True, 'user_id': uid_s, 'sources': {}}
     try:
         if registered_users is not None:
-            out['sources']['registered_users'] = _find_doc_in_coll_variants(registered_users, uid_s)
+            doc = _find_doc_in_coll_variants(registered_users, uid_s)
+            out['sources']['registered_users'] = serialize_mongo(doc) if doc else None
     except Exception as ex:
         out['sources']['registered_users_error'] = str(ex)
     try:
         if global_user_profiles_coll is not None:
-            out['sources']['global_user_profiles_coll'] = _find_doc_in_coll_variants(global_user_profiles_coll, uid_s)
+            doc = _find_doc_in_coll_variants(global_user_profiles_coll, uid_s)
+            out['sources']['global_user_profiles_coll'] = serialize_mongo(doc) if doc else None
     except Exception as ex:
         out['sources']['global_user_profiles_coll_error'] = str(ex)
     try:
         if waifu_users_coll is not None:
-            out['sources']['waifu_users_coll'] = _find_doc_in_coll_variants(waifu_users_coll, uid_s)
+            doc = _find_doc_in_coll_variants(waifu_users_coll, uid_s)
+            out['sources']['waifu_users_coll'] = serialize_mongo(doc) if doc else None
     except Exception as ex:
         out['sources']['waifu_users_coll_error'] = str(ex)
     try:
         if husband_users_coll is not None:
-            out['sources']['husband_users_coll'] = _find_doc_in_coll_variants(husband_users_coll, uid_s)
+            doc = _find_doc_in_coll_variants(husband_users_coll, uid_s)
+            out['sources']['husband_users_coll'] = serialize_mongo(doc) if doc else None
     except Exception as ex:
         out['sources']['husband_users_coll_error'] = str(ex)
     try:
         if top_global_coll is not None:
-            out['sources']['top_global_coll'] = top_global_coll.find_one({'user_id': uid_s})
+            t = top_global_coll.find_one({'user_id': uid_s})
+            out['sources']['top_global_coll'] = serialize_mongo(t) if t else None
     except Exception as ex:
         out['sources']['top_global_coll_error'] = str(ex)
     try:
@@ -678,7 +666,6 @@ def api_inspect_user():
         out['redis_error'] = str(ex)
     return jsonify(out)
 
-# api_user_info (GET or POST) - returns avatar if available (may be null)
 @app.route('/api/user_info', methods=['GET', 'POST'])
 def api_user_info():
     if request.method == 'POST':
@@ -725,7 +712,6 @@ def api_user_info():
         "balance": get_charms(uid_s)
     })
 
-# My Collection: strict image requirement, skip picsum
 @app.route('/api/my_collection')
 def api_my_collection():
     uid = request.args.get('user_id')
@@ -773,7 +759,6 @@ def api_my_collection():
                                 break
                     img = found
                 if not img:
-                    # skip items without real image
                     continue
 
                 item = {
@@ -791,7 +776,6 @@ def api_my_collection():
         traceback.print_exc()
         return jsonify({"ok": False, "items": [], "error": str(e)}), 500
 
-# Top endpoint (profile avatar prioritized)
 @app.route('/api/top')
 def api_top():
     try:
@@ -800,7 +784,6 @@ def api_top():
             limit = 100
         typ = (request.args.get('type') or '').lower().strip()
 
-        # prefer top_global when available and not type-specific
         if top_global_coll is not None and not typ:
             try:
                 cursor = top_global_coll.find({}, {"_id": 0}).sort("charms", -1).limit(limit)
@@ -815,7 +798,7 @@ def api_top():
                         if r is not None:
                             h = r.hgetall(f"user:{uid}") or {}
                             a = h.get('avatar') or h.get('photo_url')
-                            if a and 'picsum.photos' not in a:
+                            if a and 'picsum.photos' not in a and not a.startswith('/static/'):
                                 avatar = a
                             if h.get('firstname'):
                                 name = h.get('firstname')
@@ -834,7 +817,9 @@ def api_top():
                                 username = username or ru.get('username')
                         except Exception:
                             pass
-                    avatar = avatar or None
+                    # ensure we don't return picsum or local static paths here
+                    if avatar and ('picsum.photos' in avatar or avatar.startswith('/static/')):
+                        avatar = None
                     items.append({
                         "rank": rank,
                         "user_id": uid,
@@ -850,7 +835,6 @@ def api_top():
             except Exception as ex:
                 print("[api_top][top_global_read_error]", ex, flush=True)
 
-        # else build from redis or coll aggregation
         redis_key = 'leaderboard:charms'
         users_coll = None
         if typ == 'waifu':
@@ -918,7 +902,7 @@ def api_top():
                     if h.get('username'):
                         username = username or h.get('username')
                     a = h.get('avatar') or h.get('photo_url')
-                    if a and 'picsum.photos' not in a:
+                    if a and 'picsum.photos' not in a and not a.startswith('/static/'):
                         avatar = a
             except Exception:
                 pass
@@ -931,7 +915,7 @@ def api_top():
                     if prof.get('username'):
                         username = username or prof.get('username')
                     a = prof.get('avatar') or prof.get('photo_url')
-                    if a and 'picsum.photos' not in a:
+                    if a and 'picsum.photos' not in a and not a.startswith('/static/'):
                         avatar = a
             except Exception:
                 pass
@@ -941,7 +925,7 @@ def api_top():
                     tg = top_global_coll.find_one({'user_id': uid})
                     if tg:
                         tg_av = tg.get('avatar')
-                        if tg_av and 'picsum.photos' not in tg_av:
+                        if tg_av and 'picsum.photos' not in tg_av and not tg_av.startswith('/static/'):
                             avatar = tg_av
                         name = tg.get('firstname') or name
                         username = username or tg.get('username')
@@ -971,7 +955,8 @@ def api_top():
                 except Exception:
                     pass
 
-            avatar = avatar or None
+            if avatar and ('picsum.photos' in avatar or avatar.startswith('/static/')):
+                avatar = None
 
             items.append({
                 "rank": rank,
@@ -1065,7 +1050,6 @@ def api_rebuild_top_global():
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
 
-# SSE stream (charms updates)
 @app.route('/stream/charms')
 def stream_charms():
     def event_stream():
@@ -1089,7 +1073,6 @@ def stream_charms():
                 pass
     return Response(event_stream(), mimetype='text/event-stream')
 
-# local runner
 if __name__ == "__main__":
     port = safe_int(os.getenv('PORT'), 5000)
     app.run(host="0.0.0.0", port=port, threaded=True)
