@@ -1,4 +1,4 @@
-# app.py (full replacement)
+# app.py (full replacement - cleaned, fixed indentation & avatar handling)
 import os
 import json
 import traceback
@@ -34,7 +34,8 @@ def safe_int(v, default):
         return default
 
 # defaults (env override)
-DEFAULT_AVATAR = os.getenv('DEFAULT_AVATAR', 'https://picsum.photos/200')
+# Do NOT force picsum here — frontend should show local placeholder if needed
+DEFAULT_AVATAR = None
 DEFAULT_NAME = os.getenv('DEFAULT_NAME', 'Traveler')
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -47,10 +48,10 @@ try:
     MONGO_URL_WAIFU = os.getenv('MONGO_URL_WAIFU', MONGO_URI)
     MONGO_URL_HUSBAND = os.getenv('MONGO_URL_HUSBAND', MONGO_URI)
 
-       # Redis env handling (support REDIS_HOST/REDIS_URL)
-    REDIS_HOST = os.getenv('REDIS_HOST', 'redis-13380.c81.us-east-1-2.ec2.cloud.redislabs.com')
-    REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 13380)
-    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', "NRwYNwxwAjbyFxHDod1esj2hwsxugTiw")
+    # Redis env handling
+    REDIS_HOST = os.getenv('REDIS_HOST') or os.getenv('REDIS_URL')
+    REDIS_PORT = safe_int(os.getenv('REDIS_PORT'), 6379)
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD')
 
     # ---------- init helpers ----------
     def safe_mongo(uri: str):
@@ -67,13 +68,11 @@ try:
             return None
 
     def safe_redis(host: str, port: int, password: str):
-        # If redis lib missing or host not provided, return None
         if redis is None or not host:
             return None
         try:
             r = redis.Redis(host=host, port=port, password=password, decode_responses=True,
                             socket_connect_timeout=5, socket_timeout=5)
-            # test ping; if ping fails (auth or network) -> return None to force fallback
             try:
                 r.ping()
                 return r
@@ -92,7 +91,7 @@ try:
     waifu_client = safe_mongo(MONGO_URL_WAIFU)
     husband_client = safe_mongo(MONGO_URL_HUSBAND)
 
-    # fallbacks: use market_client if specific client missing
+    # fallback to market_client if specific clients missing
     if waifu_client is None:
         waifu_client = market_client
     if husband_client is None:
@@ -108,7 +107,7 @@ try:
         except Exception:
             return None
 
-    # ---------- collections (no truth-testing of Collection objects) ----------
+    # ---------- collections ----------
     waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_lmaoooo')
     if waifu_users_coll is None:
         waifu_users_coll = get_collection(waifu_client, 'Character_catcher', 'user_collection_waifu')
@@ -158,75 +157,76 @@ try:
             return out
         return obj
 
-# ----------------- Replace these functions in app.py -----------------
-
-# 1) stronger avatar extractor (include telegram patterns)
-def _try_many_fields_for_avatar(doc: Any):
-    """
-    Return the first *valid* avatar URL from a profile/document.
-    Skip picsum placeholders and local static defaults.
-    Accepts common fields and Telegram-style urls.
-    """
-    if not isinstance(doc, dict):
-        return None
-    cand = None
-    try:
-        # common fields
-        cand = (doc.get('photo_url') or doc.get('photo') or doc.get('avatar') or
-                doc.get('avatar_url') or doc.get('picture') or doc.get('image') or
-                doc.get('img_url') or doc.get('img') or doc.get('image_url') or None)
-    except Exception:
+    # avatar extraction: tries many common fields, skips picsum/static placeholders
+    def _try_many_fields_for_avatar(doc: Any):
+        if not isinstance(doc, dict):
+            return None
         cand = None
+        try:
+            cand = (doc.get('photo_url') or doc.get('photo') or doc.get('avatar') or
+                    doc.get('avatar_url') or doc.get('picture') or doc.get('image') or
+                    doc.get('img_url') or doc.get('img') or doc.get('image_url') or None)
+        except Exception:
+            cand = None
 
-    # profile nested
-    try:
-        profile = doc.get('profile') or doc.get('profile_info') or None
-    except Exception:
-        profile = None
-    if isinstance(profile, dict) and not cand:
-        cand = (profile.get('avatar') or profile.get('photo') or profile.get('picture') or profile.get('image') or None)
+        try:
+            profile = doc.get('profile') or doc.get('profile_info') or None
+        except Exception:
+            profile = None
+        if isinstance(profile, dict) and not cand:
+            cand = (profile.get('avatar') or profile.get('photo') or profile.get('picture') or profile.get('image') or None)
 
-    # also check Telegram-specific fields (some DBs store telegram photo id or userpic)
-    try:
-        # example keys that may hold telegram filename/id
-        tgfile = doc.get('telegram_photo') or doc.get('tg_photo') or doc.get('userpic') or doc.get('photo_file_id')
-        if tgfile and isinstance(tgfile, str) and tgfile.strip():
-            # if it's already a full URL, use it
-            if tgfile.startswith('http'):
-                cand = cand or tgfile
-            else:
-                # construct t.me userpic url if looks like an id/filename
-                # keep original if it contains unsafe chars? we assume it's safe ID string
-                tg_url = f"https://t.me/i/userpic/320/{tgfile}"
-                cand = cand or tg_url
-    except Exception:
-        pass
+        # telegram-specific: some DBs store file id or userpic token
+        try:
+            tgfile = doc.get('telegram_photo') or doc.get('tg_photo') or doc.get('userpic') or doc.get('photo_file_id')
+            if tgfile and isinstance(tgfile, str) and tgfile.strip():
+                if tgfile.startswith('http'):
+                    cand = cand or tgfile
+                else:
+                    cand = cand or f"https://t.me/i/userpic/320/{tgfile}"
+        except Exception:
+            pass
 
-    # if cand is list or contains multiple urls in a string, parse first http(s)
-    if isinstance(cand, list):
-        for el in cand:
-            if isinstance(el, str) and el.strip().startswith('http'):
-                if 'picsum.photos' in el or '/static/' in el:
-                    continue
-                return el.strip()
+        # if list, pick first valid
+        if isinstance(cand, list):
+            for el in cand:
+                if isinstance(el, str) and el.strip().startswith('http'):
+                    if 'picsum.photos' in el or el.startswith('/static/'):
+                        continue
+                    return el.strip()
+            return None
+
+        if isinstance(cand, str):
+            m = re.search(r'(https?://[^\s,;\'"]+)', cand)
+            if m:
+                url = m.group(1).strip()
+                if 'picsum.photos' in url:
+                    return None
+                if url.startswith('/static/') and 'userpic' not in url:
+                    return None
+                return url
         return None
-    if isinstance(cand, str):
-        # handle concatenated URLs
-        m = re.search(r'(https?://[^\s,;\'"]+)', cand)
-        if m:
-            url = m.group(1).strip()
-            # skip placeholder picsum or local default static
-            if 'picsum.photos' in url or '/static/default' in url or '/static/' in url and 'userpic' not in url:
-                return None
-            return url
-        # not an http string but maybe a bare telegram id (handled above)
-    return None
 
-# 2) ensure_user_profile: after selecting avatar, write it to redis hash 'user:{uid}' (avatar & photo_url) safely
+    # pick first valid http url from value (skip picsum)
+    def _pick_first_valid_image(value):
+        if isinstance(value, list):
+            for el in value:
+                if isinstance(el, str) and el.strip().startswith('http'):
+                    if 'picsum.photos' in el:
+                        continue
+                    return el.strip()
+            return None
+        if isinstance(value, str):
+            m = re.search(r'(https?://[^\s,;\'"]+)', value)
+            if m:
+                url = m.group(1).strip()
+                if 'picsum.photos' in url:
+                    return None
+                return url
+        return None
 
     # ---------- Charms helpers ----------
     def get_charms(uid: str) -> int:
-        """Read charms from redis if available, otherwise from top_global_coll (mongo)."""
         try:
             if r is not None:
                 try:
@@ -242,7 +242,6 @@ def _try_many_fields_for_avatar(doc: Any):
                         return int(float(s))
                 except Exception as ex:
                     print(f"[get_charms][redis_error] {ex}", flush=True)
-            # fallback to mongo top_global_coll
             if top_global_coll is not None:
                 try:
                     doc = top_global_coll.find_one({'user_id': str(uid)})
@@ -255,7 +254,6 @@ def _try_many_fields_for_avatar(doc: Any):
             return 0
 
     def update_charms(uid: str, amt: int, typ: str = None) -> bool:
-        """Increment charms in redis (preferred) and mirror to mongo if available."""
         try:
             if r is not None:
                 try:
@@ -283,13 +281,11 @@ def _try_many_fields_for_avatar(doc: Any):
                 except Exception:
                     pass
             else:
-                # no redis: update mongo top_global_coll if present
                 if top_global_coll is not None:
                     try:
                         top_global_coll.update_one({'user_id': str(uid)}, {'$inc': {'charms': int(amt)}, '$set': {'updated_at': datetime.utcnow()}}, upsert=True)
                     except Exception:
                         pass
-            # mirror to mongo if possible
             if top_global_coll is not None:
                 try:
                     top_global_coll.update_one({'user_id': str(uid)}, {'$set': {'charms': int(get_charms(uid)), 'updated_at': datetime.utcnow()}}, upsert=True)
@@ -305,7 +301,6 @@ def _try_many_fields_for_avatar(doc: Any):
         if coll is None:
             return None
         try:
-            # try common fields
             doc = coll.find_one({'user_id': uid_s})
             if doc:
                 return doc
@@ -319,7 +314,6 @@ def _try_many_fields_for_avatar(doc: Any):
                         return doc
                 except Exception:
                     pass
-            # try _id
             try:
                 doc = coll.find_one({'_id': uid_s})
                 if doc:
@@ -352,25 +346,6 @@ def _try_many_fields_for_avatar(doc: Any):
         out['avatar'] = avatar
         return out
 
-    # ---------- helper to pick first valid image (skip picsum) ----------
-    def _pick_first_valid_image(value):
-        if isinstance(value, list):
-            for el in value:
-                if isinstance(el, str) and el.strip().startswith('http'):
-                    if 'picsum.photos' in el:
-                        continue
-                    return el.strip()
-            return None
-        if isinstance(value, str):
-            # find first http URL in string (handles concatenated urls)
-            m = re.search(r'(https?://[^\s,;\'"]+)', value)
-            if m:
-                url = m.group(1).strip()
-                if 'picsum.photos' in url:
-                    return None
-                return url
-        return None
-
     # ---------- upsert_top_global ----------
     def upsert_top_global(uid: str, firstname: str = None, username: str = None, avatar: str = None):
         uid_s = str(uid)
@@ -380,7 +355,6 @@ def _try_many_fields_for_avatar(doc: Any):
             charms = 0
         now = datetime.utcnow()
 
-        # if redis has good avatar/name, prefer that
         try:
             if r is not None:
                 h = r.hgetall(f"user:{uid_s}") or {}
@@ -393,10 +367,9 @@ def _try_many_fields_for_avatar(doc: Any):
             pass
 
         chosen_avatar = None
-        if avatar and isinstance(avatar, str) and 'picsum.photos' not in avatar:
+        if avatar and isinstance(avatar, str) and 'picsum.photos' not in avatar and not avatar.startswith('/static/'):
             chosen_avatar = avatar
 
-        # write redis mapping (if redis available)
         if r is not None:
             try:
                 mapping = {'charm': str(charms), 'charms': str(charms)}
@@ -422,7 +395,6 @@ def _try_many_fields_for_avatar(doc: Any):
             except Exception as ex:
                 print(f"[upsert_top_global][redis_error] uid={uid_s} err={ex}", flush=True)
 
-        # write to mongo top_global_coll (do not set avatar if it's picsum)
         if top_global_coll is not None:
             try:
                 doc = {'user_id': uid_s, 'username': username, 'firstname': firstname, 'charms': int(charms), 'updated_at': now}
@@ -432,64 +404,139 @@ def _try_many_fields_for_avatar(doc: Any):
             except Exception as ex:
                 print(f"[upsert_top_global][mongo_error] uid={uid_s} err={ex}", flush=True)
 
-def ensure_user_profile(uid: str, first_name: str = None, username: str = None, avatar: str = None):
-    if uid is None:
-        return None
-    uid_s = str(uid)
+    # ---------- ensure_user_profile ----------
+    def ensure_user_profile(uid: str, first_name: str = None, username: str = None, avatar: str = None):
+        if uid is None:
+            return None
+        uid_s = str(uid)
 
-    # try registered_users first (but consider it "bad" if it only has defaults)
-    doc = None
-    try:
-        if registered_users is not None:
-            doc = _find_doc_in_coll_variants(registered_users, uid_s)
-    except Exception:
         doc = None
-
-    def _is_bad_registered(d):
-        if not isinstance(d, dict):
-            return True
-        fn = d.get('firstname') or d.get('first_name') or None
-        ph = d.get('photo_url') or d.get('avatar') or None
-        if not fn or fn == DEFAULT_NAME:
-            return True
-        if ph and isinstance(ph, str) and ('picsum.photos' in ph or ph.startswith('/static/')):
-            return True
-        return False
-
-    if doc and not _is_bad_registered(doc):
-        norm = _normalize_profile_doc(doc) or {}
-        if first_name:
-            norm['firstname'] = first_name
-        if username:
-            norm['username'] = username
-        if avatar:
-            norm['avatar'] = avatar
-            norm['photo_url'] = avatar
-        if not norm.get('firstname'):
-            norm['firstname'] = DEFAULT_NAME
-        if not norm.get('avatar'):
-            norm['avatar'] = None
-        # persist normalized minimal to registered_users
         try:
-            update_doc = {'user_id': uid_s, 'firstname': norm['firstname']}
-            if norm.get('photo_url'):
-                update_doc['photo_url'] = norm['photo_url']
-            if norm.get('avatar'):
-                update_doc['avatar'] = norm['avatar']
-            if norm.get('username'):
-                update_doc['username'] = norm['username']
-            registered_users.update_one({'user_id': uid_s}, {'$set': update_doc}, upsert=True)
+            if registered_users is not None:
+                doc = _find_doc_in_coll_variants(registered_users, uid_s)
+        except Exception:
+            doc = None
+
+        def _is_bad_registered(d):
+            if not isinstance(d, dict):
+                return True
+            fn = d.get('firstname') or d.get('first_name') or None
+            ph = d.get('photo_url') or d.get('avatar') or None
+            if not fn or fn == DEFAULT_NAME:
+                return True
+            if ph and isinstance(ph, str) and ('picsum.photos' in ph or ph.startswith('/static/')):
+                return True
+            return False
+
+        if doc and not _is_bad_registered(doc):
+            norm = _normalize_profile_doc(doc) or {}
+            if first_name:
+                norm['firstname'] = first_name
+            if username:
+                norm['username'] = username
+            if avatar:
+                norm['avatar'] = avatar
+                norm['photo_url'] = avatar
+            if not norm.get('firstname'):
+                norm['firstname'] = DEFAULT_NAME
+            if not norm.get('avatar'):
+                norm['avatar'] = None
+            try:
+                update_doc = {'user_id': uid_s, 'firstname': norm['firstname']}
+                if norm.get('photo_url'):
+                    update_doc['photo_url'] = norm['photo_url']
+                if norm.get('avatar'):
+                    update_doc['avatar'] = norm['avatar']
+                if norm.get('username'):
+                    update_doc['username'] = norm['username']
+                registered_users.update_one({'user_id': uid_s}, {'$set': update_doc}, upsert=True)
+            except Exception:
+                pass
+            try:
+                chosen_av = norm.get('avatar') or norm.get('photo_url')
+                if r is not None and chosen_av and isinstance(chosen_av, str) and 'picsum.photos' not in chosen_av and not chosen_av.startswith('/static/'):
+                    try:
+                        r.hset(f"user:{uid_s}", mapping={'avatar': chosen_av, 'photo_url': chosen_av, 'firstname': norm['firstname'], 'username': norm.get('username') or ''})
+                    except Exception:
+                        try:
+                            r.hset(f"user:{uid_s}", 'avatar', chosen_av)
+                            r.hset(f"user:{uid_s}", 'photo_url', chosen_av)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            try:
+                upsert_top_global(uid_s, firstname=norm['firstname'], username=norm.get('username'), avatar=norm.get('avatar'))
+            except Exception:
+                pass
+            return norm
+
+        candidates = []
+        try:
+            if global_user_profiles_coll is not None:
+                d = _find_doc_in_coll_variants(global_user_profiles_coll, uid_s)
+                if d:
+                    candidates.append(d)
+        except Exception:
+            pass
+        try:
+            if waifu_users_coll is not None:
+                d = _find_doc_in_coll_variants(waifu_users_coll, uid_s)
+                if d:
+                    candidates.append(d)
+        except Exception:
+            pass
+        try:
+            if husband_users_coll is not None:
+                d = _find_doc_in_coll_variants(husband_users_coll, uid_s)
+                if d:
+                    candidates.append(d)
         except Exception:
             pass
 
-        # store avatar to redis if valid (non-picsum / not static)
+        chosen = None
+        for c in candidates:
+            n = _normalize_profile_doc(c)
+            if not n:
+                continue
+            if not chosen:
+                chosen = n
+                continue
+            if (n.get('avatar') and 'picsum.photos' not in str(n.get('avatar'))) and (not chosen.get('avatar') or 'picsum.photos' in str(chosen.get('avatar') or '')):
+                chosen = n
+            if n.get('firstname') and (not chosen.get('firstname') or chosen.get('firstname') == DEFAULT_NAME):
+                chosen = n
+
+        if not chosen:
+            chosen = {'user_id': uid_s, 'firstname': first_name or DEFAULT_NAME, 'username': username or None, 'photo_url': avatar or None, 'avatar': avatar or None}
+        else:
+            if first_name:
+                chosen['firstname'] = first_name
+            if username:
+                chosen['username'] = username
+            if avatar:
+                chosen['avatar'] = avatar
+                chosen['photo_url'] = avatar
+
         try:
-            chosen_av = norm.get('avatar') or norm.get('photo_url')
+            to_save = {'user_id': uid_s, 'firstname': chosen.get('firstname') or DEFAULT_NAME}
+            if chosen.get('photo_url') and 'picsum.photos' not in str(chosen.get('photo_url')) and not str(chosen.get('photo_url')).startswith('/static/'):
+                to_save['photo_url'] = chosen.get('photo_url')
+            if chosen.get('avatar') and 'picsum.photos' not in str(chosen.get('avatar')) and not str(chosen.get('avatar')).startswith('/static/'):
+                to_save['avatar'] = chosen.get('avatar')
+            if chosen.get('username'):
+                to_save['username'] = chosen.get('username')
+            if registered_users is not None:
+                registered_users.update_one({'user_id': uid_s}, {'$set': to_save}, upsert=True)
+        except Exception:
+            pass
+
+        try:
+            chosen_av = chosen.get('avatar') or chosen.get('photo_url')
             if r is not None and chosen_av and isinstance(chosen_av, str) and 'picsum.photos' not in chosen_av and not chosen_av.startswith('/static/'):
                 try:
-                    r.hset(f"user:{uid_s}", mapping={'avatar': chosen_av, 'photo_url': chosen_av, 'firstname': norm['firstname'], 'username': norm.get('username') or ''})
+                    r.hset(f"user:{uid_s}", mapping={'avatar': chosen_av, 'photo_url': chosen_av, 'firstname': chosen.get('firstname') or DEFAULT_NAME, 'username': chosen.get('username') or ''})
                 except Exception:
-                    # try per-field set
                     try:
                         r.hset(f"user:{uid_s}", 'avatar', chosen_av)
                         r.hset(f"user:{uid_s}", 'photo_url', chosen_av)
@@ -499,95 +546,11 @@ def ensure_user_profile(uid: str, first_name: str = None, username: str = None, 
             pass
 
         try:
-            upsert_top_global(uid_s, firstname=norm['firstname'], username=norm.get('username'), avatar=norm.get('avatar'))
+            upsert_top_global(uid_s, firstname=chosen.get('firstname'), username=chosen.get('username'), avatar=chosen.get('avatar'))
         except Exception:
             pass
-        return norm
 
-    # if registered_users not useful, try other sources (global profiles, waifu, husband)
-    candidates = []
-    try:
-        if global_user_profiles_coll is not None:
-            d = _find_doc_in_coll_variants(global_user_profiles_coll, uid_s)
-            if d:
-                candidates.append(d)
-    except Exception:
-        pass
-    try:
-        if waifu_users_coll is not None:
-            d = _find_doc_in_coll_variants(waifu_users_coll, uid_s)
-            if d:
-                candidates.append(d)
-    except Exception:
-        pass
-    try:
-        if husband_users_coll is not None:
-            d = _find_doc_in_coll_variants(husband_users_coll, uid_s)
-            if d:
-                candidates.append(d)
-    except Exception:
-        pass
-
-    chosen = None
-    for c in candidates:
-        n = _normalize_profile_doc(c)
-        if not n:
-            continue
-        if not chosen:
-            chosen = n
-            continue
-        # prefer non-placeholder avatar or non-default name
-        if (n.get('avatar') and 'picsum.photos' not in str(n.get('avatar'))) and (not chosen.get('avatar') or 'picsum.photos' in str(chosen.get('avatar') or '')):
-            chosen = n
-        if n.get('firstname') and (not chosen.get('firstname') or chosen.get('firstname') == DEFAULT_NAME):
-            chosen = n
-
-    if not chosen:
-        chosen = {'user_id': uid_s, 'firstname': first_name or DEFAULT_NAME, 'username': username or None, 'photo_url': avatar or None, 'avatar': avatar or None}
-    else:
-        if first_name:
-            chosen['firstname'] = first_name
-        if username:
-            chosen['username'] = username
-        if avatar:
-            chosen['avatar'] = avatar
-            chosen['photo_url'] = avatar
-
-    # persist normalized to registered_users
-    try:
-        to_save = {'user_id': uid_s, 'firstname': chosen.get('firstname') or DEFAULT_NAME}
-        if chosen.get('photo_url') and 'picsum.photos' not in str(chosen.get('photo_url')) and not str(chosen.get('photo_url')).startswith('/static/'):
-            to_save['photo_url'] = chosen.get('photo_url')
-        if chosen.get('avatar') and 'picsum.photos' not in str(chosen.get('avatar')) and not str(chosen.get('avatar')).startswith('/static/'):
-            to_save['avatar'] = chosen.get('avatar')
-        if chosen.get('username'):
-            to_save['username'] = chosen.get('username')
-        if registered_users is not None:
-            registered_users.update_one({'user_id': uid_s}, {'$set': to_save}, upsert=True)
-    except Exception:
-        pass
-
-    # store avatar into redis (non-destructive to charms)
-    try:
-        chosen_av = chosen.get('avatar') or chosen.get('photo_url')
-        if r is not None and chosen_av and isinstance(chosen_av, str) and 'picsum.photos' not in chosen_av and not chosen_av.startswith('/static/'):
-            try:
-                r.hset(f"user:{uid_s}", mapping={'avatar': chosen_av, 'photo_url': chosen_av, 'firstname': chosen.get('firstname') or DEFAULT_NAME, 'username': chosen.get('username') or ''})
-            except Exception:
-                try:
-                    r.hset(f"user:{uid_s}", 'avatar', chosen_av)
-                    r.hset(f"user:{uid_s}", 'photo_url', chosen_av)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    try:
-        upsert_top_global(uid_s, firstname=chosen.get('firstname'), username=chosen.get('username'), avatar=chosen.get('avatar'))
-    except Exception:
-        pass
-
-    return chosen
+        return chosen
 
     # ---------- build top from users coll ----------
     def build_top_from_users_coll(users_coll, limit=100):
@@ -715,7 +678,7 @@ def api_inspect_user():
         out['redis_error'] = str(ex)
     return jsonify(out)
 
-# 3) api_user_info: ensure avatar_final picks redis and falls back to chosen sources; do not return static default.png
+# api_user_info (GET or POST) - returns avatar if available (may be null)
 @app.route('/api/user_info', methods=['GET', 'POST'])
 def api_user_info():
     if request.method == 'POST':
@@ -731,14 +694,10 @@ def api_user_info():
 
     doc = ensure_user_profile(uid, first_name=firstname, username=username, avatar=avatar)
     uid_s = str(uid)
-
-    # determine avatar_final: prefer provided param (if valid), then redis, then registered doc, then other sources.
     avatar_final = None
     try:
-        # param takes precedence if valid (not picsum, not local static)
         if avatar and isinstance(avatar, str) and 'picsum.photos' not in avatar and not avatar.startswith('/static/'):
             avatar_final = avatar
-        # redis
         if not avatar_final and r is not None:
             try:
                 h = r.hgetall(f"user:{uid_s}") or {}
@@ -747,7 +706,6 @@ def api_user_info():
                     avatar_final = a
             except Exception as ex:
                 print(f"[api_user_info][redis_read_err] {ex}", flush=True)
-        # registered_users doc
         if not avatar_final and isinstance(doc, dict):
             a = doc.get('avatar') or doc.get('photo_url')
             if a and isinstance(a, str) and 'picsum.photos' not in a and not a.startswith('/static/'):
@@ -755,11 +713,9 @@ def api_user_info():
     except Exception:
         pass
 
-    # name
     name_final = firstname or (doc.get('firstname') if isinstance(doc, dict) else None) or DEFAULT_NAME
     username_final = username or (doc.get('username') if isinstance(doc, dict) else None)
 
-    # Return avatar_final (could be None) — frontend can fallback to default image if desired.
     return jsonify({
         "ok": True,
         "id": uid_s,
@@ -769,8 +725,7 @@ def api_user_info():
         "balance": get_charms(uid_s)
     })
 
-# ---------------------------------------------------------------------
-# ---------- My Collection (strict image requirement, skip picsum) ----------
+# My Collection: strict image requirement, skip picsum
 @app.route('/api/my_collection')
 def api_my_collection():
     uid = request.args.get('user_id')
@@ -809,7 +764,6 @@ def api_my_collection():
                              c.get('photo') or c.get('picture') or c.get('thumbnail') or c.get('img') or None)
                 img = _pick_first_valid_image(candidate)
                 if not img:
-                    # try to scan all string/list fields in object for URLs
                     found = None
                     for k, v in c.items():
                         if isinstance(v, (list, str)):
@@ -819,8 +773,7 @@ def api_my_collection():
                                 break
                     img = found
                 if not img:
-                    # skip items that don't have a valid image (no picsum)
-                    print(f"[MY_COLLECTION] skip char missing image uid={uid} char={c.get('id') or c.get('_id') or c.get('name')}", flush=True)
+                    # skip items without real image
                     continue
 
                 item = {
@@ -830,8 +783,7 @@ def api_my_collection():
                     "img_url": img
                 }
                 items.append(item)
-            except Exception as ex:
-                print("[MY_COLLECTION_ITEM_ERROR]", ex, flush=True)
+            except Exception:
                 continue
 
         return jsonify({"ok": True, "items": items})
@@ -839,7 +791,7 @@ def api_my_collection():
         traceback.print_exc()
         return jsonify({"ok": False, "items": [], "error": str(e)}), 500
 
-# ---------- Top endpoint (profile avatar prioritized, picsum skipped) ----------
+# Top endpoint (profile avatar prioritized)
 @app.route('/api/top')
 def api_top():
     try:
@@ -848,18 +800,17 @@ def api_top():
             limit = 100
         typ = (request.args.get('type') or '').lower().strip()
 
-        # use top_global_coll when available and no type filter
-        items = []
+        # prefer top_global when available and not type-specific
         if top_global_coll is not None and not typ:
             try:
                 cursor = top_global_coll.find({}, {"_id": 0}).sort("charms", -1).limit(limit)
+                items = []
                 rank = 1
                 for doc in cursor:
                     uid = str(doc.get('user_id'))
                     name = doc.get('firstname') or DEFAULT_NAME
                     username = doc.get('username') or None
                     avatar = doc.get('avatar') or None
-                    # prefer redis value if present and not picsum
                     try:
                         if r is not None:
                             h = r.hgetall(f"user:{uid}") or {}
@@ -872,19 +823,17 @@ def api_top():
                                 username = username or h.get('username')
                     except Exception:
                         pass
-                    # if avatar still missing, attempt registered_users
-                    if (not avatar or 'picsum.photos' in str(avatar)):
-                        if registered_users is not None:
-                            try:
-                                ru = registered_users.find_one({'user_id': uid})
-                                if ru:
-                                    a2 = _try_many_fields_for_avatar(ru)
-                                    if a2:
-                                        avatar = a2
-                                    name = ru.get('firstname') or name
-                                    username = username or ru.get('username')
-                            except Exception:
-                                pass
+                    if (not avatar or 'picsum.photos' in str(avatar)) and registered_users is not None:
+                        try:
+                            ru = registered_users.find_one({'user_id': uid})
+                            if ru:
+                                a2 = _try_many_fields_for_avatar(ru)
+                                if a2:
+                                    avatar = a2
+                                name = ru.get('firstname') or name
+                                username = username or ru.get('username')
+                        except Exception:
+                            pass
                     avatar = avatar or None
                     items.append({
                         "rank": rank,
@@ -901,7 +850,7 @@ def api_top():
             except Exception as ex:
                 print("[api_top][top_global_read_error]", ex, flush=True)
 
-        # else build from redis or coll aggregation (type-specific)
+        # else build from redis or coll aggregation
         redis_key = 'leaderboard:charms'
         users_coll = None
         if typ == 'waifu':
@@ -918,7 +867,6 @@ def api_top():
         except Exception:
             raw = []
 
-        # fallback to build from users coll for type-specific
         if not raw and typ in ('waifu', 'husband') and users_coll is not None:
             try:
                 agg = build_top_from_users_coll(users_coll, limit=limit)
@@ -931,7 +879,6 @@ def api_top():
             except Exception:
                 raw = []
 
-        # fallback to global leaderboard zset if not found
         if not raw and (not typ):
             try:
                 if r is not None:
@@ -939,7 +886,6 @@ def api_top():
             except Exception:
                 raw = []
 
-        # last fallback: iterate registered_users and read charms
         if not raw:
             raw = []
             if registered_users is not None:
@@ -964,7 +910,6 @@ def api_top():
             username = None
             avatar = None
 
-            # 1) prefer redis profile hash
             try:
                 if r is not None:
                     h = r.hgetall(f"user:{uid}") or {}
@@ -978,7 +923,6 @@ def api_top():
             except Exception:
                 pass
 
-            # 2) try ensure_user_profile to populate registered_users/top if missing
             try:
                 prof = ensure_user_profile(uid)
                 if isinstance(prof, dict):
@@ -992,7 +936,6 @@ def api_top():
             except Exception:
                 pass
 
-            # 3) top_global doc fallback
             if (not avatar) and top_global_coll is not None:
                 try:
                     tg = top_global_coll.find_one({'user_id': uid})
@@ -1005,7 +948,6 @@ def api_top():
                 except Exception:
                     pass
 
-            # 4) last try: collections
             if (not avatar) and waifu_users_coll is not None:
                 try:
                     d = _find_doc_in_coll_variants(waifu_users_coll, uid)
@@ -1063,14 +1005,12 @@ def api_rebuild_top_global():
                 firstname = u.get('firstname') or DEFAULT_NAME
                 avatar = _try_many_fields_for_avatar(u) or u.get('photo_url') or u.get('avatar') or None
                 username = u.get('username') or None
-                charms = get_charms(uid)
-                # avoid storing picsum as avatar
                 if avatar and 'picsum.photos' in avatar:
                     avatar = None
-                top_global_coll.update_one({'user_id': str(uid)}, {'$set': {'user_id': str(uid), 'firstname': firstname, 'avatar': avatar, 'username': username, 'charms': int(charms), 'updated_at': datetime.utcnow()}}, upsert=True)
+                top_global_coll.update_one({'user_id': str(uid)}, {'$set': {'user_id': str(uid), 'firstname': firstname, 'avatar': avatar, 'username': username, 'charms': int(get_charms(uid)), 'updated_at': datetime.utcnow()}}, upsert=True)
                 try:
                     if r is not None:
-                        mapping = {'firstname': firstname, 'charm': str(charms), 'charms': str(charms)}
+                        mapping = {'firstname': firstname, 'charm': str(get_charms(uid)), 'charms': str(get_charms(uid))}
                         if username:
                             mapping['username'] = username
                         if avatar:
